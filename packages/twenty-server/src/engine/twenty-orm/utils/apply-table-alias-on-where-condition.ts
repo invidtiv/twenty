@@ -22,9 +22,18 @@ export const applyTableAliasOnWhereCondition = ({
       return condition;
     }
 
-    const [tableNamePart, ...rest] = conditionParts;
+    // The same aliased table can be referenced more than once inside a single
+    // compound WHERE condition (e.g. a datetime `eq` filter expands into
+    // `"alias"."col" >= :p AND "alias"."col" < :p + interval '1 millisecond'`).
+    // Rewrite EVERY table-qualifier occurrence of the alias, not just the first
+    // dot-segment, so compound conditions remain valid SQL. The lookahead keeps
+    // columns whose name embeds the alias string (e.g. `aliasName`) untouched.
+    const escapedAlias = aliasName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    return `${tableNamePart.replace(aliasName, tableName)}.${rest.join('.')}`;
+    return condition.replace(
+      new RegExp(`(?<![A-Za-z0-9_])${escapedAlias}(?=["]?\\.)`, 'g'),
+      tableName,
+    );
   }
 
   if (isArray(condition)) {

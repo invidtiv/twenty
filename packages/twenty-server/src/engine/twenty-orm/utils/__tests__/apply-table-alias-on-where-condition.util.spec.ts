@@ -128,5 +128,49 @@ describe('applyTableAliasOnWhereCondition', () => {
         },
       ]);
     });
+
+    it('should replace EVERY alias occurrence in a compound datetime-eq range condition', () => {
+      const condition: WhereClauseCondition = [
+        {
+          type: 'simple',
+          condition: `"${aliasName}"."startsAt" >= :p8f2a AND "${aliasName}"."startsAt" < :p8f2a::timestamptz + interval '1 millisecond'`,
+        },
+      ];
+
+      const result = applyTableAliasOnWhereCondition({
+        condition,
+        tableName,
+        aliasName,
+      });
+
+      expect(result).toEqual([
+        {
+          type: 'simple',
+          condition: `"${tableName}"."startsAt" >= :p8f2a AND "${tableName}"."startsAt" < :p8f2a::timestamptz + interval '1 millisecond'`,
+        },
+      ]);
+    });
+
+    it('should not rewrite a column name that embeds the alias string', () => {
+      const condition: WhereClauseCondition = [
+        {
+          type: 'simple',
+          condition: `${aliasName}.listingName = :listingName`,
+        },
+      ];
+
+      const result = applyTableAliasOnWhereCondition({
+        condition,
+        tableName,
+        aliasName,
+      });
+
+      expect(result).toEqual([
+        {
+          type: 'simple',
+          condition: `${tableName}.listingName = :listingName`,
+        },
+      ]);
+    });
   });
 });
