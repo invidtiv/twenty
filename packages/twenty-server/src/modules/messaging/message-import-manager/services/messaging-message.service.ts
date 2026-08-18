@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { MessageParticipantRole } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
 import { In } from 'typeorm';
 import { v4 } from 'uuid';
@@ -26,7 +27,8 @@ type MessageAccumulator = {
     | 'messageThreadId'
     | 'isDraft'
   >;
-  threadToCreate?: Pick<MessageThreadWorkspaceEntity, 'id' | 'subject'>;
+  threadToCreate?: Pick<MessageThreadWorkspaceEntity, 'id' | 'subject'> &
+    Partial<Pick<MessageThreadWorkspaceEntity, 'messageFrom'>>;
   messageChannelMessageAssociationToCreate?: Pick<
     MessageChannelMessageAssociationWorkspaceEntity,
     | 'id'
@@ -206,6 +208,10 @@ export class MessagingMessageService {
           string,
           { subject: string; receivedAt: number }
         >();
+        const threadFromUpdates = new Map<
+          string,
+          { messageFrom: string; receivedAt: number }
+        >();
 
         for (const message of messages) {
           const messageAccumulator = messageAccumulatorMap.get(
@@ -232,6 +238,32 @@ export class MessagingMessageService {
               });
             }
           }
+
+          const threadId =
+            messageAccumulator.threadToCreate?.id ??
+            messageAccumulator.existingThreadInDB?.id;
+          const messageFrom = this.getMessageFrom(message);
+          const existingFromUpdate = isDefined(threadId)
+            ? threadFromUpdates.get(threadId)
+            : undefined;
+          const receivedAt = message.receivedAt?.getTime() ?? 0;
+
+          if (
+            isDefined(threadId) &&
+            isDefined(messageFrom) &&
+            (!isDefined(existingFromUpdate) ||
+              receivedAt > existingFromUpdate.receivedAt)
+          ) {
+            threadFromUpdates.set(threadId, { messageFrom, receivedAt });
+          }
+        }
+
+        for (const threadToCreate of messageThreadsToCreate) {
+          const fromUpdate = threadFromUpdates.get(threadToCreate.id);
+
+          if (isDefined(fromUpdate)) {
+            threadToCreate.messageFrom = fromUpdate.messageFrom;
+          }
         }
 
         if (messageThreadsToCreate.length > 0) {
@@ -245,6 +277,16 @@ export class MessagingMessageService {
           await messageThreadRepository.upsert(
             Array.from(threadSubjectUpdates.entries()).map(
               ([id, { subject }]) => ({ id, subject }),
+            ),
+            ['id'],
+            transactionManager,
+          );
+        }
+
+        if (threadFromUpdates.size > 0) {
+          await messageThreadRepository.upsert(
+            Array.from(threadFromUpdates.entries()).map(
+              ([id, { messageFrom }]) => ({ id, messageFrom }),
             ),
             ['id'],
             transactionManager,
@@ -329,6 +371,19 @@ export class MessagingMessageService {
       authContext,
       { lite: true },
     );
+  }
+
+  private getMessageFrom(message: MessageWithParticipants): string | null {
+    const fromParticipant = message.participants.find(
+      (participant) => participant.role === MessageParticipantRole.FROM,
+    );
+
+    const messageFrom =
+      fromParticipant?.handle ?? fromParticipant?.displayName ?? null;
+
+    return isDefined(messageFrom) && messageFrom.trim().length > 0
+      ? messageFrom.trim()
+      : null;
   }
 
   private async enrichMessageAccumulatorWithExistingMessages(

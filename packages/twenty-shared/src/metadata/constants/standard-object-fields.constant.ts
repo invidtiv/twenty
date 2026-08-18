@@ -623,6 +623,9 @@ export const STANDARD_OBJECT_FIELDS = {
     subject: {
       universalIdentifier: 'a8ddbf8c-1137-45d1-b89e-5ffbd83f67c8',
     },
+    messageFrom: {
+      universalIdentifier: '7c40f093-66ca-4791-a348-e2ae9a031f7b',
+    },
   },
   message: {
     ...buildStandardObjectSystemFields(

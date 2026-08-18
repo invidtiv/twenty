@@ -20,6 +20,18 @@ export const computeStandardMessageThreadViewFields = (
         size: 300,
       },
     }),
+    allMessageThreadsMessageFrom: createStandardViewFieldFlatMetadata({
+      ...args,
+      objectName: 'messageThread',
+      context: {
+        viewName: 'allMessageThreads',
+        viewFieldName: 'messageFrom',
+        fieldName: 'messageFrom',
+        position: 4,
+        isVisible: true,
+        size: 220,
+      },
+    }),
     allMessageThreadsMessages: createStandardViewFieldFlatMetadata({
       ...args,
       objectName: 'messageThread',

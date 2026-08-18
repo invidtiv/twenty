@@ -761,7 +761,13 @@ export const STANDARD_OBJECTS = {
         objectUniversalIdentifier:
           STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.messageThread,
         fields: STANDARD_OBJECT_FIELDS.messageThread,
-        viewFieldNames: ['subject', 'messages', 'updatedAt', 'createdAt'],
+        viewFieldNames: [
+          'subject',
+          'messages',
+          'updatedAt',
+          'createdAt',
+          'messageFrom',
+        ],
       }),
     },
   },

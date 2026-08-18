@@ -202,6 +202,23 @@ export const buildMessageThreadStandardFlatFieldMetadatas = ({
     twentyStandardApplicationId,
     now,
   }),
+  messageFrom: createStandardFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      fieldName: 'messageFrom',
+      type: FieldMetadataType.TEXT,
+      label: i18nLabel(msg`From`),
+      description: i18nLabel(msg`Sender of the latest message`),
+      icon: 'IconAt',
+      isNullable: true,
+      isUIEditable: false,
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
   messages: createStandardRelationFieldFlatMetadata({
     objectName,
     workspaceId,
