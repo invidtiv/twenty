@@ -1,0 +1,3128 @@
+{
+  "application": {
+    "universalIdentifier": "ef201904-ead2-44a6-b839-aa2db4787a93",
+    "displayName": "Kairos Operations",
+    "description": "Workspace-isolated operational CRM schema and idempotent Kairos integration boundary.",
+    "author": "Kairos",
+    "category": "Productivity",
+    "applicationVariables": {
+      "KAIROS_DEFAULT_TIMEZONE": {
+        "universalIdentifier": "b98f36a6-16a4-46c4-9896-407501bd0cd0",
+        "description": "Default operational timezone for Kairos records",
+        "value": "Europe/Lisbon",
+        "isSecret": false
+      }
+    },
+    "galleryImages": [],
+    "defaultRoleUniversalIdentifier": "ed373830-d398-4534-928c-ef53f4200117",
+    "aboutDescription": "# Kairos Operations for Twenty\n\nThis Twenty application configures the isolated **Kairos Operations** workspace as the durable system of record for bookings, people, properties, booking-scoped contacts, operational events, communications, and ingestion provenance. Kairos remains responsible for ingestion, reasoning, reconciliation, reminders, calls, and transient source state.\n\nThe implementation is pinned to `twenty-sdk` and `twenty-client-sdk` `2.29.0`, matching the installed `twenty-app-dev` server (`APP_VERSION=v2.29.0`). Twenty 2.29 generates custom-object system fields server-side; using an older SDK produces an invalid manifest.\n\n## Contents\n\n- [Data model](docs/DATA_MODEL.md)\n- [Integration and credential setup](docs/INTEGRATION.md)\n- [Machine-readable schema summary](schema/kairos-operations.schema.json)\n- [Sample ingestion fixture](samples/sample-ingestion.json)\n- [Live verification script](scripts/verify-live.mjs)\n- [Hermes MCP adapter](integrations/hermes/twenty_kairos_mcp.py)\n\n## Apply and verify\n\n```bash\nyarn install\nyarn test\nyarn lint\nyarn typecheck\nyarn twenty apply\n```\n\nFor a live acceptance pass, create a workspace-scoped API key with the shipped **Kairos Operations API** role, keep the token in a secret store, and run:\n\n```bash\nTWENTY_BASE_URL=http://localhost:2020 \\\nTWENTY_API_KEY='replace-from-secret-store' \\\nyarn verify:live\n```\n\nThe verifier creates sample records through the authenticated application routes, repeats the stable-key upserts, checks that TalkGuest and WhatsApp contacts remain separate, switches the preferred contact without deleting provenance, and confirms tomorrow/event queries against Twenty itself.\n\nNo credentials, cookies, OTPs, Playwright state, voice-bridge secrets, or Tailscale keys belong in this directory or in Twenty records.\n\nThe Hermes adapter provides scoped booking, operational-calendar, and read-only synced-email tools without exposing a generic Twenty API surface to the agent.\n",
+    "yarnLockChecksum": "de0f4997d51ae2181cd036c6d695ccce",
+    "packageJsonChecksum": "3ad85b0da2efa1f50337422dff9c645d",
+    "requiredServerVersionRange": null
+  },
+  "objects": [
+    {
+      "universalIdentifier": "35e25a5e-b749-4e7f-b018-bb441efbe138",
+      "nameSingular": "serviceEvent",
+      "namePlural": "serviceEvents",
+      "labelSingular": "Service Event",
+      "labelPlural": "Service Events",
+      "description": "Canonical operational and calendar events for bookings.",
+      "icon": "IconCalendarEvent",
+      "isSearchable": true,
+      "labelIdentifierFieldMetadataUniversalIdentifier": "474c021e-31f7-47cf-ab61-54ce3e8d6c44",
+      "fields": [
+        {
+          "universalIdentifier": "474c021e-31f7-47cf-ab61-54ce3e8d6c44",
+          "type": "TEXT",
+          "name": "title",
+          "label": "Title",
+          "icon": "IconCalendarEvent"
+        },
+        {
+          "universalIdentifier": "db1aa117-c213-4e58-9542-95c962ebd916",
+          "type": "TEXT",
+          "name": "sourceEventKey",
+          "label": "Source event key",
+          "description": "Stable source key used to make event upserts idempotent.",
+          "icon": "IconKey",
+          "isUnique": true
+        },
+        {
+          "universalIdentifier": "c0f49285-7d30-4857-b750-4e2184f9680f",
+          "type": "RELATION",
+          "name": "booking",
+          "label": "Booking",
+          "icon": "IconCalendarCheck",
+          "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "relationTargetFieldMetadataUniversalIdentifier": "e9299c67-6514-47f7-8cb8-3a66971848b9",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "CASCADE",
+            "joinColumnName": "bookingId"
+          }
+        },
+        {
+          "universalIdentifier": "e68faee7-3490-4ac1-a45e-d16ea1fb0684",
+          "type": "SELECT",
+          "name": "eventType",
+          "label": "Event type",
+          "icon": "IconCategory",
+          "options": [
+            {
+              "value": "GUEST_CONTACT_DEADLINE",
+              "label": "Guest contact deadline",
+              "position": 0,
+              "color": "orange",
+              "id": "44e1b74b-8dab-5d33-b803-8daf5e8fbf7b"
+            },
+            {
+              "value": "DAY_BEFORE_PREPARATION",
+              "label": "Day-before preparation",
+              "position": 1,
+              "color": "yellow",
+              "id": "4cbd4aaf-b8d2-5bf4-b14c-eaef99e9399d"
+            },
+            {
+              "value": "CHECK_IN",
+              "label": "Check-in",
+              "position": 2,
+              "color": "green",
+              "id": "79a36c2e-b184-560c-b665-2f9caf6dc02a"
+            },
+            {
+              "value": "KEY_HANDOVER",
+              "label": "Key handover",
+              "position": 3,
+              "color": "blue",
+              "id": "38d53c0e-e253-5d56-87d8-7e32a5b2fccd"
+            },
+            {
+              "value": "FOLLOW_UP",
+              "label": "Follow-up",
+              "position": 4,
+              "color": "turquoise",
+              "id": "da173ffb-d83c-5d0f-a3bc-2e65bcb058cb"
+            },
+            {
+              "value": "CHECK_OUT",
+              "label": "Check-out",
+              "position": 5,
+              "color": "purple",
+              "id": "00b485d3-cce5-5cf2-8963-b59b4847b777"
+            },
+            {
+              "value": "CUSTOM",
+              "label": "Custom",
+              "position": 6,
+              "color": "gray",
+              "id": "f955869f-4a8f-5dc6-a34b-028ff8d6253e"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "ddd6e50c-f61d-48d8-9812-e34ce1794738",
+          "type": "DATE_TIME",
+          "name": "startsAt",
+          "label": "Starts at",
+          "icon": "IconClockPlay"
+        },
+        {
+          "universalIdentifier": "bd896bce-0169-43b2-b443-ff230633b517",
+          "type": "DATE_TIME",
+          "name": "endsAt",
+          "label": "Ends at",
+          "icon": "IconClockStop",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "3f9b745b-ed19-46f2-98a0-48b4eafa977b",
+          "type": "SELECT",
+          "name": "status",
+          "label": "Status",
+          "icon": "IconProgressCheck",
+          "defaultValue": "'SCHEDULED'",
+          "options": [
+            {
+              "value": "SCHEDULED",
+              "label": "Scheduled",
+              "position": 0,
+              "color": "blue",
+              "id": "816a6158-c59c-5d82-a0fa-03e05fb152bb"
+            },
+            {
+              "value": "READY",
+              "label": "Ready",
+              "position": 1,
+              "color": "green",
+              "id": "eaee3354-14f6-5f4e-8de7-fdd3e5271397"
+            },
+            {
+              "value": "IN_PROGRESS",
+              "label": "In Progress",
+              "position": 2,
+              "color": "turquoise",
+              "id": "94472c37-815b-5705-ac4a-6d362fe4c8a2"
+            },
+            {
+              "value": "COMPLETED",
+              "label": "Completed",
+              "position": 3,
+              "color": "green",
+              "id": "9b59adbe-78a2-57cb-8e8c-2cc7b719d2e9"
+            },
+            {
+              "value": "CANCELLED",
+              "label": "Cancelled",
+              "position": 4,
+              "color": "gray",
+              "id": "8d3e7cbd-748c-57ab-a704-02452a1fa692"
+            },
+            {
+              "value": "PROBLEM",
+              "label": "Problem",
+              "position": 5,
+              "color": "red",
+              "id": "cd2af254-1be9-5b14-97fb-8289a26ad44c"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "5711b870-a6b0-4c40-9994-8a2d8fc1119f",
+          "type": "TEXT",
+          "name": "location",
+          "label": "Location",
+          "icon": "IconMapPin",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "024afa54-4cf7-43ba-844a-d25534e214fb",
+          "type": "TEXT",
+          "name": "notes",
+          "label": "Notes",
+          "icon": "IconNotes",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "68077ba7-2d92-490f-9821-1bed83a171a9",
+          "type": "SELECT",
+          "name": "source",
+          "label": "Source",
+          "icon": "IconDatabaseImport",
+          "defaultValue": "'KAIROS'",
+          "options": [
+            {
+              "value": "WHATSAPP",
+              "label": "WhatsApp",
+              "position": 0,
+              "color": "green",
+              "id": "8a545fba-ce4c-5d13-a911-4d5f8bc432a3"
+            },
+            {
+              "value": "TALKGUEST",
+              "label": "TalkGuest",
+              "position": 1,
+              "color": "blue",
+              "id": "baa45ca4-deef-5cf0-a52a-618b6133d5d5"
+            },
+            {
+              "value": "EMAIL",
+              "label": "Email",
+              "position": 2,
+              "color": "orange",
+              "id": "f96441f8-fc1d-5191-85dc-d5397609922b"
+            },
+            {
+              "value": "MANUAL",
+              "label": "Manual",
+              "position": 3,
+              "color": "gray",
+              "id": "3efe83ec-36bf-59a1-9290-214d8e2ba603"
+            },
+            {
+              "value": "KAIROS",
+              "label": "Kairos",
+              "position": 4,
+              "color": "purple",
+              "id": "777f9076-7bf7-5af8-b927-18d990d3b582"
+            },
+            {
+              "value": "FUTURE_API",
+              "label": "Future API",
+              "position": 5,
+              "color": "turquoise",
+              "id": "863c5dae-f321-580d-872b-6c99b58d803e"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "deee0eb0-55f6-4b01-a097-cd2a70ef2f07",
+          "type": "TEXT",
+          "name": "externalEventId",
+          "label": "External event ID",
+          "icon": "IconId",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "a46671f2-af84-4c72-a457-1d716f7b11a6",
+          "type": "BOOLEAN",
+          "name": "kairosRemindersEnabled",
+          "label": "Kairos reminders enabled",
+          "icon": "IconBell",
+          "defaultValue": true
+        },
+        {
+          "universalIdentifier": "7111008f-0dbc-48b7-8f8b-510ac69c2e3a",
+          "type": "TEXT",
+          "name": "externalCalendarProvider",
+          "label": "Calendar provider",
+          "icon": "IconCalendarCog",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "09dea7ac-aba5-402a-9257-6756b120c55f",
+          "type": "TEXT",
+          "name": "externalCalendarId",
+          "label": "External calendar ID",
+          "icon": "IconCalendar",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "b5e6f80e-1f5f-4667-bb72-557064776a9c",
+          "type": "TEXT",
+          "name": "externalCalendarEventId",
+          "label": "External calendar event ID",
+          "icon": "IconCalendarEvent",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "0ac8e43a-755b-46cb-90f4-d0115c2f3ee2",
+          "type": "DATE_TIME",
+          "name": "lastCalendarSyncAt",
+          "label": "Last calendar sync at",
+          "icon": "IconRefresh",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "872cae07-6ba0-4e08-a4f8-4df70debcea4",
+          "type": "SELECT",
+          "name": "calendarSyncStatus",
+          "label": "Calendar sync status",
+          "icon": "IconCloudCheck",
+          "defaultValue": "'NOT_CONFIGURED'",
+          "options": [
+            {
+              "value": "NOT_CONFIGURED",
+              "label": "Not configured",
+              "position": 0,
+              "color": "gray",
+              "id": "aa03474d-c11c-5b92-b8a6-001a0795cc13"
+            },
+            {
+              "value": "PENDING",
+              "label": "Pending",
+              "position": 1,
+              "color": "yellow",
+              "id": "dc9d0879-60fc-5d8d-a8d7-9c9b2e28a5d9"
+            },
+            {
+              "value": "SYNCED",
+              "label": "Synced",
+              "position": 2,
+              "color": "green",
+              "id": "3878db75-902f-559e-a8da-e50375693aaf"
+            },
+            {
+              "value": "ERROR",
+              "label": "Error",
+              "position": 3,
+              "color": "red",
+              "id": "342e9bfc-e586-5677-a8ad-53598ed2414a"
+            }
+          ]
+        },
+        {
+          "name": "name",
+          "label": "Name",
+          "description": "Name",
+          "icon": "IconAbc",
+          "isNullable": true,
+          "defaultValue": null,
+          "type": "TEXT",
+          "universalIdentifier": "d7c80d0c-62ff-55e1-b588-4a5c54d15c15"
+        },
+        {
+          "universalIdentifier": "5701242b-2e84-4d33-aad8-bbe5c573ff2d",
+          "type": "NUMBER",
+          "name": "checkValue",
+          "label": "Check value (€)",
+          "icon": "IconCurrencyEuro",
+          "description": "Earned per check: 25€ when the check-in starts before 21:00, 30€ from 21:00 (Europe/Lisbon)."
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+      "nameSingular": "booking",
+      "namePlural": "bookings",
+      "labelSingular": "Booking",
+      "labelPlural": "Bookings",
+      "description": "Canonical operational record for a stay or service engagement.",
+      "icon": "IconCalendarCheck",
+      "isSearchable": true,
+      "labelIdentifierFieldMetadataUniversalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
+      "fields": [
+        {
+          "universalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
+          "type": "TEXT",
+          "name": "name",
+          "label": "Booking",
+          "icon": "IconCalendarCheck"
+        },
+        {
+          "universalIdentifier": "d74571d8-799d-4d44-834d-d1fa871dc894",
+          "type": "UUID",
+          "name": "bookingId",
+          "label": "Booking ID",
+          "icon": "IconFingerprint",
+          "isUnique": true
+        },
+        {
+          "universalIdentifier": "2a75040e-8d62-4a60-9ef8-c64a7ffa1ef4",
+          "type": "SELECT",
+          "name": "source",
+          "label": "Source",
+          "icon": "IconDatabaseImport",
+          "defaultValue": "'MANUAL'",
+          "options": [
+            {
+              "value": "WHATSAPP",
+              "label": "WhatsApp",
+              "position": 0,
+              "color": "green",
+              "id": "817a0b1f-2c6d-562f-9aff-6be0279b32dd"
+            },
+            {
+              "value": "TALKGUEST",
+              "label": "TalkGuest",
+              "position": 1,
+              "color": "blue",
+              "id": "dbfa236c-540a-5172-a3df-6a6e36fd4de1"
+            },
+            {
+              "value": "EMAIL",
+              "label": "Email",
+              "position": 2,
+              "color": "orange",
+              "id": "403cf33c-7543-5159-b01b-2e0eb4620f80"
+            },
+            {
+              "value": "MANUAL",
+              "label": "Manual",
+              "position": 3,
+              "color": "gray",
+              "id": "27dacb7f-63c5-5069-9f7b-579e92aaefc5"
+            },
+            {
+              "value": "KAIROS",
+              "label": "Kairos",
+              "position": 4,
+              "color": "purple",
+              "id": "da6881d7-ac75-59d4-807d-57ef0e77fb29"
+            },
+            {
+              "value": "FUTURE_API",
+              "label": "Future API",
+              "position": 5,
+              "color": "turquoise",
+              "id": "cce12638-f271-5d81-9daf-1ec1fc2c2029"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "ffabfed6-ca36-48fb-923e-4e3f0d10601b",
+          "type": "TEXT",
+          "name": "externalBookingId",
+          "label": "External booking ID",
+          "icon": "IconId",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "0bed0dd7-b5d0-4bf3-9579-b3982235fa84",
+          "type": "TEXT",
+          "name": "sourceKey",
+          "label": "Source key",
+          "description": "Unique source plus external ID key used for idempotent ingestion.",
+          "icon": "IconKey",
+          "isUnique": true
+        },
+        {
+          "universalIdentifier": "1c80ecdd-2894-42d9-b6ff-ece72f106f9f",
+          "type": "LINKS",
+          "name": "sourceUrl",
+          "label": "Source URL",
+          "icon": "IconLink",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "55188b75-9b44-42f6-a844-4d06b29a2302",
+          "type": "DATE_TIME",
+          "name": "sourceLastSeenAt",
+          "label": "Source last seen at",
+          "icon": "IconClock",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "5148a52d-0657-4d70-ace8-864ea11584ac",
+          "type": "RELATION",
+          "name": "guest",
+          "label": "Guest",
+          "icon": "IconUser",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+          "relationTargetFieldMetadataUniversalIdentifier": "d774af19-617d-445a-911d-c3bff2c859cb",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "guestId"
+          }
+        },
+        {
+          "universalIdentifier": "6e18badf-e8bf-4204-8b1c-baf533ba2351",
+          "type": "RELATION",
+          "name": "property",
+          "label": "Property",
+          "icon": "IconBuildingEstate",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "82c6e180-c624-4e8a-86e8-f5890f8adf6a",
+          "relationTargetFieldMetadataUniversalIdentifier": "bc757472-8fbf-46aa-85ff-1bf7968301f6",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "propertyId"
+          }
+        },
+        {
+          "universalIdentifier": "7838c088-bb63-453e-a7c2-1c11614d4df8",
+          "type": "RELATION",
+          "name": "contactMethods",
+          "label": "Booking contact methods",
+          "icon": "IconAddressBook",
+          "relationTargetObjectMetadataUniversalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+          "relationTargetFieldMetadataUniversalIdentifier": "7e6829eb-b284-456e-b77c-108d3778ffe3",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        },
+        {
+          "universalIdentifier": "a9c91804-a412-4a60-98f5-326a1f7671b6",
+          "type": "RELATION",
+          "name": "preferredContactMethod",
+          "label": "Preferred booking contact",
+          "icon": "IconPhoneCheck",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+          "relationTargetFieldMetadataUniversalIdentifier": "6078cf4e-79a2-4aa8-aa1c-27bb59678e0e",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "preferredContactMethodId"
+          }
+        },
+        {
+          "universalIdentifier": "e9299c67-6514-47f7-8cb8-3a66971848b9",
+          "type": "RELATION",
+          "name": "serviceEvents",
+          "label": "Service events",
+          "icon": "IconCalendarEvent",
+          "relationTargetObjectMetadataUniversalIdentifier": "35e25a5e-b749-4e7f-b018-bb441efbe138",
+          "relationTargetFieldMetadataUniversalIdentifier": "c0f49285-7d30-4857-b750-4e2184f9680f",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        },
+        {
+          "universalIdentifier": "16742110-d655-4720-968d-3d9dbc15baeb",
+          "type": "RELATION",
+          "name": "communications",
+          "label": "Communications",
+          "icon": "IconMessages",
+          "relationTargetObjectMetadataUniversalIdentifier": "980a5656-1746-4ee2-be74-ee622ab24887",
+          "relationTargetFieldMetadataUniversalIdentifier": "99f1eec4-2d48-4036-908a-28a765ba8186",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        },
+        {
+          "universalIdentifier": "03e72644-12e7-484f-90c3-efa7e6b76630",
+          "type": "RELATION",
+          "name": "sourceRecords",
+          "label": "Source records",
+          "icon": "IconDatabase",
+          "relationTargetObjectMetadataUniversalIdentifier": "90d7133e-f132-495f-949f-07f5450b53e4",
+          "relationTargetFieldMetadataUniversalIdentifier": "cff68dfc-340a-477c-a828-5572f54544c0",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        },
+        {
+          "universalIdentifier": "57422a39-a2ab-44c2-993c-c6cdf2209c19",
+          "type": "RELATION",
+          "name": "tasks",
+          "label": "Tasks",
+          "icon": "IconChecklist",
+          "relationTargetObjectMetadataUniversalIdentifier": "20202020-1ba1-48ba-bc83-ef7e5990ed10",
+          "relationTargetFieldMetadataUniversalIdentifier": "6b6b731b-29ec-4c4a-a1e7-79e02b3e577d",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        },
+        {
+          "universalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "type": "DATE_TIME",
+          "name": "checkinAt",
+          "label": "Check-in at",
+          "icon": "IconLogin2",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "4315310f-c4fe-45cc-9321-71477daf061f",
+          "type": "DATE_TIME",
+          "name": "checkoutAt",
+          "label": "Check-out at",
+          "icon": "IconLogout2",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "316938ac-11c3-4ce6-a5cb-001599a30d06",
+          "type": "DATE_TIME",
+          "name": "arrivalWindowStart",
+          "label": "Arrival window start",
+          "icon": "IconClockPlay",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "59338a52-062d-4a76-9628-70e3ed63c150",
+          "type": "DATE_TIME",
+          "name": "arrivalWindowEnd",
+          "label": "Arrival window end",
+          "icon": "IconClockStop",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "3df932b7-125c-4621-9e79-b4a1f8377a29",
+          "type": "TEXT",
+          "name": "timezone",
+          "label": "Timezone",
+          "icon": "IconWorld",
+          "defaultValue": "'Europe/Lisbon'"
+        },
+        {
+          "universalIdentifier": "755a18b8-2fd1-43c6-931e-436edb682ebb",
+          "type": "SELECT",
+          "name": "status",
+          "label": "Status",
+          "icon": "IconProgressCheck",
+          "defaultValue": "'NEW'",
+          "options": [
+            {
+              "value": "NEW",
+              "label": "New",
+              "position": 0,
+              "color": "gray",
+              "id": "279cf724-2376-50d6-9bee-b46eec49cb89"
+            },
+            {
+              "value": "CONFIRMED",
+              "label": "Confirmed",
+              "position": 1,
+              "color": "blue",
+              "id": "213760bd-0998-5d42-959c-b4bedc05978b"
+            },
+            {
+              "value": "PREPARING",
+              "label": "Preparing",
+              "position": 2,
+              "color": "orange",
+              "id": "a0f520b0-466d-51fb-b5e5-e40d754f0705"
+            },
+            {
+              "value": "WAITING_FOR_GUEST",
+              "label": "Waiting for Guest",
+              "position": 3,
+              "color": "yellow",
+              "id": "3f077b35-d4ad-53d4-ac3d-1da1e2cb2a6b"
+            },
+            {
+              "value": "READY",
+              "label": "Ready",
+              "position": 4,
+              "color": "green",
+              "id": "000a16ab-ecf6-5cb8-897b-bc6eecbb2693"
+            },
+            {
+              "value": "IN_PROGRESS",
+              "label": "In Progress",
+              "position": 5,
+              "color": "turquoise",
+              "id": "94d407e3-dfb4-54cc-8321-e39f4a915d72"
+            },
+            {
+              "value": "COMPLETED",
+              "label": "Completed",
+              "position": 6,
+              "color": "green",
+              "id": "0c4a3e7d-dfe7-5132-ab4a-db9fa137b423"
+            },
+            {
+              "value": "CANCELLED",
+              "label": "Cancelled",
+              "position": 7,
+              "color": "gray",
+              "id": "b1482501-b806-5210-8793-e11672a57044"
+            },
+            {
+              "value": "PROBLEM",
+              "label": "Problem",
+              "position": 8,
+              "color": "red",
+              "id": "b53d762a-35fb-51e8-9891-40256b714495"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "3972438d-4732-422f-b886-21b23e6b7d6e",
+          "type": "SELECT",
+          "name": "readinessStatus",
+          "label": "Readiness",
+          "icon": "IconClipboardCheck",
+          "defaultValue": "'UNKNOWN'",
+          "options": [
+            {
+              "value": "UNKNOWN",
+              "label": "Unknown",
+              "position": 0,
+              "color": "gray",
+              "id": "be03dce2-dd36-59b0-ae00-7aecc24fd00d"
+            },
+            {
+              "value": "MISSING_CONTACT",
+              "label": "Missing Contact",
+              "position": 1,
+              "color": "red",
+              "id": "8796c7da-b523-574c-93dd-8681c07a4db9"
+            },
+            {
+              "value": "MISSING_LOCATION",
+              "label": "Missing Location",
+              "position": 2,
+              "color": "red",
+              "id": "4b6c8e58-d67b-5a2c-ab32-18d90e596239"
+            },
+            {
+              "value": "MISSING_ARRIVAL_DETAILS",
+              "label": "Missing Arrival Details",
+              "position": 3,
+              "color": "orange",
+              "id": "ca80c105-350b-5d88-8cb9-331b7e4aeafe"
+            },
+            {
+              "value": "READY",
+              "label": "Ready",
+              "position": 4,
+              "color": "green",
+              "id": "c2278306-e021-5731-8594-611bf99dd249"
+            },
+            {
+              "value": "NEEDS_REVIEW",
+              "label": "Needs Review",
+              "position": 5,
+              "color": "yellow",
+              "id": "56a742dc-da1b-5ef8-b18d-4e39fe7fb9fc"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "fd72020a-d71e-49ad-a5ed-f08db4c82b67",
+          "type": "SELECT",
+          "name": "riskLevel",
+          "label": "Risk level",
+          "icon": "IconAlertTriangle",
+          "defaultValue": "'LOW'",
+          "options": [
+            {
+              "value": "LOW",
+              "label": "Low",
+              "position": 0,
+              "color": "green",
+              "id": "db2982d1-2017-564d-b29f-28afe4a4644a"
+            },
+            {
+              "value": "MEDIUM",
+              "label": "Medium",
+              "position": 1,
+              "color": "yellow",
+              "id": "52b0206a-837b-590b-a1dc-f439dfe835f2"
+            },
+            {
+              "value": "HIGH",
+              "label": "High",
+              "position": 2,
+              "color": "orange",
+              "id": "30f1560b-9c21-58bd-a0ad-2a4db7f96661"
+            },
+            {
+              "value": "CRITICAL",
+              "label": "Critical",
+              "position": 3,
+              "color": "red",
+              "id": "8aec28b0-2f20-5f9d-be83-4bac6eee50f3"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "3239c76c-53c7-4c2f-88e9-f84e773be608",
+          "type": "BOOLEAN",
+          "name": "needsHumanReview",
+          "label": "Needs human review",
+          "icon": "IconUserQuestion",
+          "defaultValue": false
+        },
+        {
+          "universalIdentifier": "2528d4cd-d904-47d0-8841-3448314a3977",
+          "type": "TEXT",
+          "name": "missingInformation",
+          "label": "Missing information",
+          "icon": "IconListCheck",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "183b9ba9-64d6-4b62-80b3-1a53a4c11c83",
+          "type": "DATE_TIME",
+          "name": "lastReviewedAt",
+          "label": "Last reviewed at",
+          "icon": "IconClockCheck",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "0b2aeefa-f36c-4c02-9e84-81427d6c404e",
+          "type": "TEXT",
+          "name": "aiSummary",
+          "label": "AI summary",
+          "description": "Convenience summary; never authoritative.",
+          "icon": "IconSparkles",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "cdb1b93d-e4ca-4d8f-83be-1c5c4da4c064",
+          "type": "TEXT",
+          "name": "internalNotes",
+          "label": "Internal notes",
+          "icon": "IconNotes",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "d1b864bd-bfd2-4806-beeb-2eceed946eb6",
+          "type": "TEXT",
+          "name": "specialInstructions",
+          "label": "Special instructions",
+          "icon": "IconInfoCircle",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "7935f9a4-7a9b-4093-ad99-3a697efb2466",
+          "type": "RAW_JSON",
+          "name": "rawMetadata",
+          "label": "Raw metadata",
+          "icon": "IconJson",
+          "isNullable": true
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "82c6e180-c624-4e8a-86e8-f5890f8adf6a",
+      "nameSingular": "property",
+      "namePlural": "properties",
+      "labelSingular": "Property",
+      "labelPlural": "Properties",
+      "description": "Operational locations served by Kairos.",
+      "icon": "IconBuildingEstate",
+      "isSearchable": true,
+      "labelIdentifierFieldMetadataUniversalIdentifier": "f8439ff3-6be3-4fae-880d-b70f2b151345",
+      "fields": [
+        {
+          "universalIdentifier": "f8439ff3-6be3-4fae-880d-b70f2b151345",
+          "type": "TEXT",
+          "name": "name",
+          "label": "Name",
+          "icon": "IconBuildingEstate"
+        },
+        {
+          "universalIdentifier": "13364159-f749-4dc3-991d-793a49d1a90d",
+          "type": "TEXT",
+          "name": "externalPropertyId",
+          "label": "External property ID",
+          "icon": "IconFingerprint",
+          "isNullable": true,
+          "isUnique": true
+        },
+        {
+          "universalIdentifier": "1ecc46f3-db57-44f5-a055-7f3c7486c207",
+          "type": "TEXT",
+          "name": "propertyAddress",
+          "label": "Address",
+          "icon": "IconMapPin",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "4fe72b26-db19-4892-b67a-2d3b2a8eff70",
+          "type": "LINKS",
+          "name": "mapUrl",
+          "label": "Map URL",
+          "icon": "IconMap",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "00e17c4b-ccba-40a2-ac87-2d1616b0215f",
+          "type": "TEXT",
+          "name": "defaultCheckinNotes",
+          "label": "Default check-in notes",
+          "icon": "IconNotes",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "aab162d4-09ee-42f4-979e-61e4c603ad45",
+          "type": "TEXT",
+          "name": "accessNotes",
+          "label": "Access notes",
+          "description": "Non-secret access context only.",
+          "icon": "IconDoorEnter",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "690dc3c6-7a03-4be7-b2bf-4d0844389a1d",
+          "type": "TEXT",
+          "name": "accessSecretReference",
+          "label": "Access secret reference",
+          "description": "Opaque reference to a secret store; never a raw credential.",
+          "icon": "IconKey",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "dcb194bd-9bc6-488c-af3d-33a3fe5a6cd3",
+          "type": "BOOLEAN",
+          "name": "active",
+          "label": "Active",
+          "icon": "IconToggleRight",
+          "defaultValue": true
+        },
+        {
+          "universalIdentifier": "ace214c6-eda3-4f58-ba7f-20a9bb86a9d1",
+          "type": "TEXT",
+          "name": "timezone",
+          "label": "Timezone",
+          "description": "IANA timezone, for example Europe/Lisbon.",
+          "icon": "IconWorld",
+          "defaultValue": "'Europe/Lisbon'"
+        },
+        {
+          "universalIdentifier": "422a7937-d76c-4015-af99-e1bc0e77504e",
+          "type": "RAW_JSON",
+          "name": "metadata",
+          "label": "Metadata",
+          "icon": "IconJson",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "bc757472-8fbf-46aa-85ff-1bf7968301f6",
+          "type": "RELATION",
+          "name": "bookings",
+          "label": "Bookings",
+          "icon": "IconCalendarEvent",
+          "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "relationTargetFieldMetadataUniversalIdentifier": "6e18badf-e8bf-4204-8b1c-baf533ba2351",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "90d7133e-f132-495f-949f-07f5450b53e4",
+      "nameSingular": "sourceRecord",
+      "namePlural": "sourceRecords",
+      "labelSingular": "Source Record",
+      "labelPlural": "Source Records",
+      "description": "Immutable-ish ingestion evidence and parser provenance.",
+      "icon": "IconDatabase",
+      "isSearchable": true,
+      "labelIdentifierFieldMetadataUniversalIdentifier": "7dcb9508-900a-4ffe-bf5f-85ab11d9c079",
+      "fields": [
+        {
+          "universalIdentifier": "7dcb9508-900a-4ffe-bf5f-85ab11d9c079",
+          "type": "TEXT",
+          "name": "name",
+          "label": "Source record",
+          "icon": "IconDatabase"
+        },
+        {
+          "universalIdentifier": "33917a6d-4085-4373-a54a-28f62f6bc62f",
+          "type": "SELECT",
+          "name": "sourceType",
+          "label": "Source type",
+          "icon": "IconDatabaseImport",
+          "options": [
+            {
+              "value": "WHATSAPP",
+              "label": "WhatsApp",
+              "position": 0,
+              "color": "green",
+              "id": "23aceeb0-7aeb-592e-8543-3bf7176be2ca"
+            },
+            {
+              "value": "TALKGUEST",
+              "label": "TalkGuest",
+              "position": 1,
+              "color": "blue",
+              "id": "a5458d31-8025-5387-8584-14680f295d92"
+            },
+            {
+              "value": "EMAIL",
+              "label": "Email",
+              "position": 2,
+              "color": "orange",
+              "id": "f33a7079-51ea-54f4-8c2f-2110a59f9592"
+            },
+            {
+              "value": "MANUAL",
+              "label": "Manual",
+              "position": 3,
+              "color": "gray",
+              "id": "12ff1311-97df-51a0-8b3f-1872732b0dd7"
+            },
+            {
+              "value": "KAIROS",
+              "label": "Kairos",
+              "position": 4,
+              "color": "purple",
+              "id": "c39e0aba-7f57-5f0b-bc9f-8de281c003ed"
+            },
+            {
+              "value": "FUTURE_API",
+              "label": "Future API",
+              "position": 5,
+              "color": "turquoise",
+              "id": "62dd2015-2286-5d8a-a6d4-e1d53be8ddca"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "09e4ecb5-a299-49dd-952b-3549e662d272",
+          "type": "TEXT",
+          "name": "externalId",
+          "label": "External ID",
+          "icon": "IconId"
+        },
+        {
+          "universalIdentifier": "5145a933-f308-4ee0-9e7a-d88bcc866d68",
+          "type": "TEXT",
+          "name": "sourceKey",
+          "label": "Source key",
+          "description": "Unique source plus external ID key for replay safety.",
+          "icon": "IconKey",
+          "isUnique": true
+        },
+        {
+          "universalIdentifier": "4b229514-568e-498f-9700-957f7f3761fc",
+          "type": "DATE_TIME",
+          "name": "receivedAt",
+          "label": "Received at",
+          "icon": "IconClockDown"
+        },
+        {
+          "universalIdentifier": "70ca867d-ebef-40ee-9855-8e1f9161573d",
+          "type": "DATE_TIME",
+          "name": "sourceTimestamp",
+          "label": "Source timestamp",
+          "icon": "IconClock",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "cff68dfc-340a-477c-a828-5572f54544c0",
+          "type": "RELATION",
+          "name": "booking",
+          "label": "Booking",
+          "icon": "IconCalendarCheck",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "relationTargetFieldMetadataUniversalIdentifier": "03e72644-12e7-484f-90c3-efa7e6b76630",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "bookingId"
+          }
+        },
+        {
+          "universalIdentifier": "65d98012-5e65-487b-b155-9e7600ed4802",
+          "type": "RELATION",
+          "name": "contactMethods",
+          "label": "Contact methods",
+          "icon": "IconAddressBook",
+          "relationTargetObjectMetadataUniversalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+          "relationTargetFieldMetadataUniversalIdentifier": "51face38-c92a-49cd-85cd-669e587c1275",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        },
+        {
+          "universalIdentifier": "6a227323-bfa7-4eb9-ae1e-10bcf5f50a0a",
+          "type": "RELATION",
+          "name": "communications",
+          "label": "Communications",
+          "icon": "IconMessages",
+          "relationTargetObjectMetadataUniversalIdentifier": "980a5656-1746-4ee2-be74-ee622ab24887",
+          "relationTargetFieldMetadataUniversalIdentifier": "48111c7d-8dc5-4796-b8fe-80e61cf21df4",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        },
+        {
+          "universalIdentifier": "b1b423dc-8014-4b98-9445-0a1e34bb799f",
+          "type": "SELECT",
+          "name": "parseStatus",
+          "label": "Parse status",
+          "icon": "IconCode",
+          "defaultValue": "'RECEIVED'",
+          "options": [
+            {
+              "value": "RECEIVED",
+              "label": "Received",
+              "position": 0,
+              "color": "blue",
+              "id": "5df477eb-4a27-5297-8bfb-1bc7a486937f"
+            },
+            {
+              "value": "PARSED",
+              "label": "Parsed",
+              "position": 1,
+              "color": "turquoise",
+              "id": "44caa12a-24ae-53d2-bd48-83e2a1ff9388"
+            },
+            {
+              "value": "RECONCILED",
+              "label": "Reconciled",
+              "position": 2,
+              "color": "green",
+              "id": "aefa2946-bf36-57df-ac4e-f15254332dc3"
+            },
+            {
+              "value": "NEEDS_REVIEW",
+              "label": "Needs Review",
+              "position": 3,
+              "color": "yellow",
+              "id": "746ef1b6-bc52-5528-bca3-c8ac27739f10"
+            },
+            {
+              "value": "ERROR",
+              "label": "Error",
+              "position": 4,
+              "color": "red",
+              "id": "c5a77746-fe73-5ac3-9b35-2172bfb21b2b"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "73257ec7-b897-4ddc-8a96-21acd6021ab9",
+          "type": "TEXT",
+          "name": "contentHash",
+          "label": "Content hash",
+          "icon": "IconHash",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "40892ee0-0973-4f2f-a65f-1d8d618bcd53",
+          "type": "TEXT",
+          "name": "rawText",
+          "label": "Raw text",
+          "description": "Operational source content only; never credentials or session state.",
+          "icon": "IconFileText",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "237d07ff-a13b-4974-8f52-2c1d5e05e18c",
+          "type": "RAW_JSON",
+          "name": "rawMetadata",
+          "label": "Raw metadata",
+          "icon": "IconJson",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "17c33b77-4efc-4b67-a1ef-5235c1e62f34",
+          "type": "TEXT",
+          "name": "parserVersion",
+          "label": "Parser version",
+          "icon": "IconVersions",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "58faf2a7-8511-44a9-8347-72f73d6ff2c2",
+          "type": "TEXT",
+          "name": "error",
+          "label": "Error",
+          "icon": "IconAlertTriangle",
+          "isNullable": true
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "980a5656-1746-4ee2-be74-ee622ab24887",
+      "nameSingular": "communication",
+      "namePlural": "communications",
+      "labelSingular": "Communication",
+      "labelPlural": "Communications",
+      "description": "Durable operational communications and summaries.",
+      "icon": "IconMessages",
+      "isSearchable": true,
+      "labelIdentifierFieldMetadataUniversalIdentifier": "2dc42515-35d3-45cf-9718-ec336480306f",
+      "fields": [
+        {
+          "universalIdentifier": "2dc42515-35d3-45cf-9718-ec336480306f",
+          "type": "TEXT",
+          "name": "summary",
+          "label": "Summary",
+          "icon": "IconMessage"
+        },
+        {
+          "universalIdentifier": "1604a5a2-24e6-4358-a295-b64d43b0bad1",
+          "type": "TEXT",
+          "name": "communicationKey",
+          "label": "Communication key",
+          "description": "Optional stable source key for idempotent creation.",
+          "icon": "IconKey",
+          "isNullable": true,
+          "isUnique": true
+        },
+        {
+          "universalIdentifier": "99f1eec4-2d48-4036-908a-28a765ba8186",
+          "type": "RELATION",
+          "name": "booking",
+          "label": "Booking",
+          "icon": "IconCalendarCheck",
+          "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "relationTargetFieldMetadataUniversalIdentifier": "16742110-d655-4720-968d-3d9dbc15baeb",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "CASCADE",
+            "joinColumnName": "bookingId"
+          }
+        },
+        {
+          "universalIdentifier": "8eb24112-8dce-4247-bb25-7e43bbecdd8b",
+          "type": "RELATION",
+          "name": "person",
+          "label": "Person",
+          "icon": "IconUser",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+          "relationTargetFieldMetadataUniversalIdentifier": "83493694-a531-4500-9d72-860a841b0cd5",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "personId"
+          }
+        },
+        {
+          "universalIdentifier": "79c6978f-d902-4d11-ae57-36ab111c0f71",
+          "type": "SELECT",
+          "name": "direction",
+          "label": "Direction",
+          "icon": "IconArrowsLeftRight",
+          "options": [
+            {
+              "value": "INBOUND",
+              "label": "Inbound",
+              "position": 0,
+              "color": "blue",
+              "id": "f45a3fe2-7a85-51dd-b17d-768ffb997b3a"
+            },
+            {
+              "value": "OUTBOUND",
+              "label": "Outbound",
+              "position": 1,
+              "color": "green",
+              "id": "9e6bfbd3-779e-57e0-953a-ca098c3f2c93"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "2d9ca981-9fe9-46aa-a730-76ac72f22b06",
+          "type": "SELECT",
+          "name": "channel",
+          "label": "Channel",
+          "icon": "IconMessageCircle",
+          "options": [
+            {
+              "value": "WHATSAPP",
+              "label": "WhatsApp",
+              "position": 0,
+              "color": "green",
+              "id": "3047b0b1-badc-53fe-8764-6e0077f0fef1"
+            },
+            {
+              "value": "PHONE",
+              "label": "Phone",
+              "position": 1,
+              "color": "blue",
+              "id": "f312033b-51f1-56b8-93fe-8100159bddb2"
+            },
+            {
+              "value": "EMAIL",
+              "label": "Email",
+              "position": 2,
+              "color": "orange",
+              "id": "2577d8ec-e3ac-5bb7-b3d3-8d78c28058ed"
+            },
+            {
+              "value": "VOICE_CALL",
+              "label": "Voice call",
+              "position": 3,
+              "color": "purple",
+              "id": "79d38444-165e-52f7-ae63-98862e745b0f"
+            },
+            {
+              "value": "OTHER",
+              "label": "Other",
+              "position": 4,
+              "color": "gray",
+              "id": "48cf9640-d498-5a9a-96ba-9ac7f182f9e9"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "be9d8aaf-8571-4bbe-841e-96a576553abe",
+          "type": "DATE_TIME",
+          "name": "occurredAt",
+          "label": "Occurred at",
+          "icon": "IconClock"
+        },
+        {
+          "universalIdentifier": "48111c7d-8dc5-4796-b8fe-80e61cf21df4",
+          "type": "RELATION",
+          "name": "rawSourceRecord",
+          "label": "Raw source record",
+          "icon": "IconDatabase",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "90d7133e-f132-495f-949f-07f5450b53e4",
+          "relationTargetFieldMetadataUniversalIdentifier": "6a227323-bfa7-4eb9-ae1e-10bcf5f50a0a",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "rawSourceRecordId"
+          }
+        },
+        {
+          "universalIdentifier": "0b464587-bf67-4b7d-b0ce-d121ef0ef211",
+          "type": "BOOLEAN",
+          "name": "actionRequired",
+          "label": "Action required",
+          "icon": "IconAlertCircle",
+          "defaultValue": false
+        },
+        {
+          "universalIdentifier": "22621e90-07cd-4c69-8d0c-1de02b5b10cc",
+          "type": "BOOLEAN",
+          "name": "processedByKairos",
+          "label": "Processed by Kairos",
+          "icon": "IconRobot",
+          "defaultValue": false
+        },
+        {
+          "universalIdentifier": "fd4da697-5b4c-496e-8564-215dbd3de582",
+          "type": "SELECT",
+          "name": "confidence",
+          "label": "Confidence",
+          "icon": "IconShieldCheck",
+          "defaultValue": "'UNVERIFIED'",
+          "options": [
+            {
+              "value": "CONFIRMED",
+              "label": "Confirmed",
+              "position": 0,
+              "color": "green",
+              "id": "c9ad62f2-2f0c-59e6-92cc-a9bce1454dfa"
+            },
+            {
+              "value": "LIKELY",
+              "label": "Likely",
+              "position": 1,
+              "color": "yellow",
+              "id": "39eb0afb-7735-5f3f-a2b1-da0c2e826055"
+            },
+            {
+              "value": "UNVERIFIED",
+              "label": "Unverified",
+              "position": 2,
+              "color": "gray",
+              "id": "d7e1a822-65c5-5e0d-ba87-da97ba837bde"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "b1afea22-0ac2-4df2-a463-527128d70e85",
+          "type": "RAW_JSON",
+          "name": "metadata",
+          "label": "Metadata",
+          "icon": "IconJson",
+          "isNullable": true
+        },
+        {
+          "name": "name",
+          "label": "Name",
+          "description": "Name",
+          "icon": "IconAbc",
+          "isNullable": true,
+          "defaultValue": null,
+          "type": "TEXT",
+          "universalIdentifier": "a96271bc-b23d-5695-87a4-b56c580191f7"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+      "nameSingular": "bookingContactMethod",
+      "namePlural": "bookingContactMethods",
+      "labelSingular": "Booking Contact Method",
+      "labelPlural": "Booking Contact Methods",
+      "description": "Booking-scoped contact candidates with independent provenance.",
+      "icon": "IconAddressBook",
+      "isSearchable": true,
+      "labelIdentifierFieldMetadataUniversalIdentifier": "e678442d-a2be-490a-843d-51bea70af99d",
+      "fields": [
+        {
+          "universalIdentifier": "e678442d-a2be-490a-843d-51bea70af99d",
+          "type": "TEXT",
+          "name": "name",
+          "label": "Contact label",
+          "icon": "IconAddressBook"
+        },
+        {
+          "universalIdentifier": "7ea58c3b-3aaa-49a3-b62e-9750f2083824",
+          "type": "TEXT",
+          "name": "sourceContactKey",
+          "label": "Source contact key",
+          "description": "Stable booking plus source plus contact identity.",
+          "icon": "IconKey",
+          "isUnique": true
+        },
+        {
+          "universalIdentifier": "7e6829eb-b284-456e-b77c-108d3778ffe3",
+          "type": "RELATION",
+          "name": "booking",
+          "label": "Booking",
+          "icon": "IconCalendarCheck",
+          "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "relationTargetFieldMetadataUniversalIdentifier": "7838c088-bb63-453e-a7c2-1c11614d4df8",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "CASCADE",
+            "joinColumnName": "bookingId"
+          }
+        },
+        {
+          "universalIdentifier": "36dfacf5-f9eb-4ab7-bb81-8c9e96258ac2",
+          "type": "RELATION",
+          "name": "person",
+          "label": "Person",
+          "icon": "IconUser",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+          "relationTargetFieldMetadataUniversalIdentifier": "4dec0e82-46ea-417b-89a7-296d1a0a3baf",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "personId"
+          }
+        },
+        {
+          "universalIdentifier": "2fb53b9d-b208-498f-9de6-8f4f0c371b07",
+          "type": "SELECT",
+          "name": "contactType",
+          "label": "Contact type",
+          "icon": "IconMessageCircle",
+          "options": [
+            {
+              "value": "WHATSAPP",
+              "label": "WhatsApp",
+              "position": 0,
+              "color": "green",
+              "id": "55404890-df9f-5d3d-8ec1-82b212c77bd3"
+            },
+            {
+              "value": "PHONE",
+              "label": "Phone",
+              "position": 1,
+              "color": "blue",
+              "id": "e9ef9c24-97b7-5249-83a0-f1181cce517b"
+            },
+            {
+              "value": "EMAIL",
+              "label": "Email",
+              "position": 2,
+              "color": "orange",
+              "id": "b460ef61-ca49-5d90-9422-78ecdd59c315"
+            },
+            {
+              "value": "OTHER",
+              "label": "Other",
+              "position": 3,
+              "color": "gray",
+              "id": "934e079a-b52f-5e0d-aa43-0226e9588085"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "0aae60eb-0db2-4761-b420-c0c29b3fbb1a",
+          "type": "TEXT",
+          "name": "contactValue",
+          "label": "Contact value",
+          "icon": "IconAt"
+        },
+        {
+          "universalIdentifier": "3e09cc2e-7807-4e2e-91bb-866a54cf2985",
+          "type": "SELECT",
+          "name": "source",
+          "label": "Source",
+          "icon": "IconDatabaseImport",
+          "options": [
+            {
+              "value": "WHATSAPP",
+              "label": "WhatsApp",
+              "position": 0,
+              "color": "green",
+              "id": "d4342c40-d9f8-5120-8d96-67ed3feaf9d1"
+            },
+            {
+              "value": "TALKGUEST",
+              "label": "TalkGuest",
+              "position": 1,
+              "color": "blue",
+              "id": "7cebeda0-e150-5ca3-a038-3ca197ec9d4c"
+            },
+            {
+              "value": "MANUAL",
+              "label": "Manual",
+              "position": 2,
+              "color": "gray",
+              "id": "4d94b569-b8ea-5622-809f-15ac311f47e2"
+            },
+            {
+              "value": "EMAIL",
+              "label": "Email",
+              "position": 3,
+              "color": "orange",
+              "id": "5c9c9117-d7d2-56c2-86c0-1e256bbceee0"
+            },
+            {
+              "value": "OTHER",
+              "label": "Other",
+              "position": 4,
+              "color": "purple",
+              "id": "73d2ebac-7f89-53d7-ae6f-d8abfcf5e7f9"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "51face38-c92a-49cd-85cd-669e587c1275",
+          "type": "RELATION",
+          "name": "sourceRecord",
+          "label": "Source record",
+          "icon": "IconDatabase",
+          "isNullable": true,
+          "relationTargetObjectMetadataUniversalIdentifier": "90d7133e-f132-495f-949f-07f5450b53e4",
+          "relationTargetFieldMetadataUniversalIdentifier": "65d98012-5e65-487b-b155-9e7600ed4802",
+          "universalSettings": {
+            "relationType": "MANY_TO_ONE",
+            "onDelete": "SET_NULL",
+            "joinColumnName": "sourceRecordId"
+          }
+        },
+        {
+          "universalIdentifier": "6bad4454-ddf0-4518-abdb-4329ed4934cd",
+          "type": "NUMBER",
+          "name": "priority",
+          "label": "Priority",
+          "icon": "IconSortAscendingNumbers",
+          "defaultValue": 100
+        },
+        {
+          "universalIdentifier": "8e2fa636-b7cc-4c5f-a6f1-296880e67e2f",
+          "type": "BOOLEAN",
+          "name": "isPreferred",
+          "label": "Preferred",
+          "icon": "IconStar",
+          "defaultValue": false
+        },
+        {
+          "universalIdentifier": "e6277bbb-e636-4b4e-855b-ab976e827194",
+          "type": "SELECT",
+          "name": "preferenceMode",
+          "label": "Preference mode",
+          "description": "Distinguishes policy selection from an explicit human choice.",
+          "icon": "IconAdjustments",
+          "defaultValue": "'POLICY'",
+          "options": [
+            {
+              "value": "POLICY",
+              "label": "Policy",
+              "position": 0,
+              "color": "blue",
+              "id": "5dec80a5-fe7a-5796-bbce-d9ce63b10de6"
+            },
+            {
+              "value": "MANUAL",
+              "label": "Manual",
+              "position": 1,
+              "color": "purple",
+              "id": "529dbd9b-b493-50cf-9246-222fdf5b9e82"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "3af68364-489c-4374-aa66-013da3a810fb",
+          "type": "SELECT",
+          "name": "confidence",
+          "label": "Confidence",
+          "icon": "IconShieldCheck",
+          "defaultValue": "'UNVERIFIED'",
+          "options": [
+            {
+              "value": "CONFIRMED",
+              "label": "Confirmed",
+              "position": 0,
+              "color": "green",
+              "id": "51a6b7c2-f94e-59a8-bed6-e9d638a48839"
+            },
+            {
+              "value": "LIKELY",
+              "label": "Likely",
+              "position": 1,
+              "color": "yellow",
+              "id": "89b964b2-4494-51bd-b84a-e0b21c8a86ec"
+            },
+            {
+              "value": "UNVERIFIED",
+              "label": "Unverified",
+              "position": 2,
+              "color": "gray",
+              "id": "009ea508-2b07-5ef5-9628-b78fbcad7e3e"
+            }
+          ]
+        },
+        {
+          "universalIdentifier": "ac02650f-adfd-4049-bda8-8ffb5e7ed687",
+          "type": "DATE_TIME",
+          "name": "lastVerifiedAt",
+          "label": "Last verified at",
+          "icon": "IconClockCheck",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "2b04bc88-8d57-4ce8-95a2-2487b23a30b9",
+          "type": "DATE_TIME",
+          "name": "validFrom",
+          "label": "Valid from",
+          "icon": "IconCalendarPlus",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "5425f75a-b710-415d-a755-056713339956",
+          "type": "DATE_TIME",
+          "name": "validUntil",
+          "label": "Valid until",
+          "icon": "IconCalendarMinus",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "79e23b27-e7e2-4e0a-9592-eb5f065800d5",
+          "type": "TEXT",
+          "name": "notes",
+          "label": "Notes",
+          "icon": "IconNotes",
+          "isNullable": true
+        },
+        {
+          "universalIdentifier": "6078cf4e-79a2-4aa8-aa1c-27bb59678e0e",
+          "type": "RELATION",
+          "name": "preferredForBookings",
+          "label": "Preferred for bookings",
+          "icon": "IconStar",
+          "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "relationTargetFieldMetadataUniversalIdentifier": "a9c91804-a412-4a60-98f5-326a1f7671b6",
+          "universalSettings": {
+            "relationType": "ONE_TO_MANY"
+          }
+        }
+      ]
+    }
+  ],
+  "fields": [
+    {
+      "universalIdentifier": "47c1b6c5-c0e0-4d9d-808f-3760903e0c29",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "DATE_TIME",
+      "name": "lastVerifiedAt",
+      "label": "Last verified at",
+      "icon": "IconClockCheck",
+      "isNullable": true
+    },
+    {
+      "universalIdentifier": "4dec0e82-46ea-417b-89a7-296d1a0a3baf",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "RELATION",
+      "name": "bookingContactMethods",
+      "label": "Booking contact methods",
+      "icon": "IconAddressBook",
+      "relationTargetObjectMetadataUniversalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+      "relationTargetFieldMetadataUniversalIdentifier": "36dfacf5-f9eb-4ab7-bb81-8c9e96258ac2",
+      "universalSettings": {
+        "relationType": "ONE_TO_MANY"
+      }
+    },
+    {
+      "universalIdentifier": "6b6b731b-29ec-4c4a-a1e7-79e02b3e577d",
+      "objectUniversalIdentifier": "20202020-1ba1-48ba-bc83-ef7e5990ed10",
+      "type": "RELATION",
+      "name": "booking",
+      "label": "Booking",
+      "icon": "IconCalendarCheck",
+      "isNullable": true,
+      "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+      "relationTargetFieldMetadataUniversalIdentifier": "57422a39-a2ab-44c2-993c-c6cdf2209c19",
+      "universalSettings": {
+        "relationType": "MANY_TO_ONE",
+        "onDelete": "SET_NULL",
+        "joinColumnName": "bookingId"
+      }
+    },
+    {
+      "universalIdentifier": "80397f7b-0a62-4c57-8b19-4635ff897422",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "SELECT",
+      "name": "preferredContactMethod",
+      "label": "Preferred contact method",
+      "icon": "IconMessageCircle",
+      "defaultValue": "'UNKNOWN'",
+      "options": [
+        {
+          "value": "WHATSAPP",
+          "label": "WhatsApp",
+          "position": 0,
+          "color": "green",
+          "id": "8e2cea64-1072-5982-b0c3-8e639b3666df"
+        },
+        {
+          "value": "PHONE",
+          "label": "Phone",
+          "position": 1,
+          "color": "blue",
+          "id": "c16fa4ab-b283-5c2d-93dd-c98045fd7ddc"
+        },
+        {
+          "value": "EMAIL",
+          "label": "Email",
+          "position": 2,
+          "color": "orange",
+          "id": "19ec5837-1bc3-554a-bef5-f4035bf6292e"
+        },
+        {
+          "value": "UNKNOWN",
+          "label": "Unknown",
+          "position": 3,
+          "color": "gray",
+          "id": "99d361ab-3627-5c78-a42f-aab65104c0aa"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "83493694-a531-4500-9d72-860a841b0cd5",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "RELATION",
+      "name": "communications",
+      "label": "Operational communications",
+      "icon": "IconMessages",
+      "relationTargetObjectMetadataUniversalIdentifier": "980a5656-1746-4ee2-be74-ee622ab24887",
+      "relationTargetFieldMetadataUniversalIdentifier": "8eb24112-8dce-4247-bb25-7e43bbecdd8b",
+      "universalSettings": {
+        "relationType": "ONE_TO_MANY"
+      }
+    },
+    {
+      "universalIdentifier": "9179643b-13a8-4f92-899d-70d75952fd49",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "TEXT",
+      "name": "preferredLanguage",
+      "label": "Preferred language",
+      "icon": "IconLanguage",
+      "isNullable": true
+    },
+    {
+      "universalIdentifier": "a41c6f10-d2ca-4b3b-8e8e-c451f35f0af9",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "TEXT",
+      "name": "contactNotes",
+      "label": "Contact notes",
+      "icon": "IconNotes",
+      "isNullable": true
+    },
+    {
+      "universalIdentifier": "d774af19-617d-445a-911d-c3bff2c859cb",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "RELATION",
+      "name": "guestBookings",
+      "label": "Guest bookings",
+      "icon": "IconCalendarCheck",
+      "relationTargetObjectMetadataUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+      "relationTargetFieldMetadataUniversalIdentifier": "5148a52d-0657-4d70-ace8-864ea11584ac",
+      "universalSettings": {
+        "relationType": "ONE_TO_MANY"
+      }
+    },
+    {
+      "universalIdentifier": "e0bc7f60-3a2b-43d5-9e6c-adbd82f3825e",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "MULTI_SELECT",
+      "name": "personType",
+      "label": "Person type",
+      "icon": "IconUsersGroup",
+      "options": [
+        {
+          "value": "GUEST",
+          "label": "Guest",
+          "position": 0,
+          "color": "green",
+          "id": "2a24297d-a739-5cbc-98a2-5865be839a04"
+        },
+        {
+          "value": "COORDINATOR",
+          "label": "Coordinator",
+          "position": 1,
+          "color": "blue",
+          "id": "f1e19da8-41ee-5689-876f-dce1ad2d8ce8"
+        },
+        {
+          "value": "COLLEAGUE",
+          "label": "Colleague",
+          "position": 2,
+          "color": "turquoise",
+          "id": "827c19cd-5bc8-57ec-ac81-854e939be878"
+        },
+        {
+          "value": "OWNER",
+          "label": "Owner",
+          "position": 3,
+          "color": "purple",
+          "id": "cc74e0ff-3de2-56b2-9c24-d51b3a1b70ac"
+        },
+        {
+          "value": "OPERATOR",
+          "label": "Operator",
+          "position": 4,
+          "color": "orange",
+          "id": "f9c4bde0-5d94-53f7-9883-966ebba94930"
+        },
+        {
+          "value": "OTHER",
+          "label": "Other",
+          "position": 5,
+          "color": "gray",
+          "id": "5c98fdfb-0238-59fb-9b9b-299543a3e9b4"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "f6857e82-46a7-44cd-9310-082565a610af",
+      "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+      "type": "UUID",
+      "name": "globalContactId",
+      "label": "Global contact ID",
+      "description": "Opaque stable cross-system identity; never derived from phone or email.",
+      "icon": "IconFingerprint",
+      "isNullable": true,
+      "isUnique": true
+    }
+  ],
+  "indexes": [],
+  "permissionFlags": [],
+  "roles": [
+    {
+      "universalIdentifier": "7adac4fc-762e-427c-848f-0ae529f529d9",
+      "label": "Kairos Operations API",
+      "description": "Least-privilege role for Kairos ingestion, reconciliation, and operational queries.",
+      "icon": "IconApi",
+      "canBeAssignedToUsers": false,
+      "canBeAssignedToAgents": false,
+      "canBeAssignedToApiKeys": true,
+      "canUpdateAllSettings": false,
+      "canReadAllObjectRecords": false,
+      "canUpdateAllObjectRecords": false,
+      "canSoftDeleteAllObjectRecords": false,
+      "canDestroyAllObjectRecords": false,
+      "objectPermissions": [
+        {
+          "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "ab10f8ef-e2ad-5ec3-98c2-1f7ed1ebec66"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-1ba1-48ba-bc83-ef7e5990ed10",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "f538b4f9-85c8-5a63-92c8-f5d4c700705c"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-849a-4c3e-84f5-a25a7d802271",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "74b242b6-cad3-5fe9-88d8-f17df648354d"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-3f6b-4425-80ab-e468899ab4b2",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "780934ae-0675-5832-bbc0-43804e6713c4"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-a433-4456-aa2d-fd9cb26b774a",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "b5a12715-5b6a-5483-897a-68842f57f6a5"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-ad1e-4127-bccb-d83ae04d2ccb",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "b52446bb-44db-5fa7-8792-f39f96df28fc"
+        },
+        {
+          "objectUniversalIdentifier": "82c6e180-c624-4e8a-86e8-f5890f8adf6a",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "6e2b7ee1-4ca1-5a8e-9bf7-c29abd01211b"
+        },
+        {
+          "objectUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "766e8647-9753-57bf-be26-60b96dee034e"
+        },
+        {
+          "objectUniversalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "f746e8f5-7b76-56b7-9fbe-1a77316cf402"
+        },
+        {
+          "objectUniversalIdentifier": "35e25a5e-b749-4e7f-b018-bb441efbe138",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "1b4b44a6-dd44-59db-85cb-7f19bdc29d3d"
+        },
+        {
+          "objectUniversalIdentifier": "980a5656-1746-4ee2-be74-ee622ab24887",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "effa3e66-04c6-5e03-9eb4-1fe7b8cb98b3"
+        },
+        {
+          "objectUniversalIdentifier": "90d7133e-f132-495f-949f-07f5450b53e4",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "6b441fa3-677f-5a8d-aa32-8800e927ce4e"
+        }
+      ],
+      "fieldPermissions": [],
+      "rowLevelPermissionPredicateGroups": [],
+      "rowLevelPermissionPredicates": [],
+      "permissionFlagUniversalIdentifiers": []
+    },
+    {
+      "universalIdentifier": "ed373830-d398-4534-928c-ef53f4200117",
+      "label": "Kairos Operations function role",
+      "description": "Least-privilege record access for Kairos ingestion, reconciliation, and operational queries.",
+      "icon": "IconRobot",
+      "canReadAllObjectRecords": false,
+      "canUpdateAllObjectRecords": false,
+      "canSoftDeleteAllObjectRecords": false,
+      "canDestroyAllObjectRecords": false,
+      "canUpdateAllSettings": false,
+      "canBeAssignedToUsers": false,
+      "canBeAssignedToAgents": false,
+      "canBeAssignedToApiKeys": false,
+      "objectPermissions": [
+        {
+          "objectUniversalIdentifier": "20202020-e674-48e5-a542-72570eee7213",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "f995595d-8728-586f-9370-df1a346751d6"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-1ba1-48ba-bc83-ef7e5990ed10",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "e526b516-08e1-5a67-abb9-0869ab662546"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-849a-4c3e-84f5-a25a7d802271",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "ffc68084-bbbd-5b99-a64d-7cbf14100c54"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-3f6b-4425-80ab-e468899ab4b2",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "95149f48-75fb-5fbe-b780-c077c6c1d546"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-a433-4456-aa2d-fd9cb26b774a",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "572c351d-a8ec-52a7-ad2f-8decf42ed561"
+        },
+        {
+          "objectUniversalIdentifier": "20202020-ad1e-4127-bccb-d83ae04d2ccb",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": false,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "3f4d251f-63b0-5290-98b0-5b64af08fb4f"
+        },
+        {
+          "objectUniversalIdentifier": "82c6e180-c624-4e8a-86e8-f5890f8adf6a",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "99c0b799-6a0a-5f0f-8508-b8946f470cf0"
+        },
+        {
+          "objectUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "83d3f44e-1a40-50bb-a150-c5056b08b738"
+        },
+        {
+          "objectUniversalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "7d813d90-7a68-5537-89c4-21094709ce33"
+        },
+        {
+          "objectUniversalIdentifier": "35e25a5e-b749-4e7f-b018-bb441efbe138",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "a7c3fd6d-81cc-5fbf-b50a-8cdb80c63866"
+        },
+        {
+          "objectUniversalIdentifier": "980a5656-1746-4ee2-be74-ee622ab24887",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "29847cdd-77a9-5eb3-94ea-e633db28bb11"
+        },
+        {
+          "objectUniversalIdentifier": "90d7133e-f132-495f-949f-07f5450b53e4",
+          "canReadObjectRecords": true,
+          "canUpdateObjectRecords": true,
+          "canSoftDeleteObjectRecords": false,
+          "canDestroyObjectRecords": false,
+          "universalIdentifier": "0e4f96ed-177f-59a1-8e8c-659726a30bc6"
+        }
+      ],
+      "fieldPermissions": [],
+      "permissionFlagUniversalIdentifiers": [],
+      "rowLevelPermissionPredicateGroups": [],
+      "rowLevelPermissionPredicates": []
+    }
+  ],
+  "skills": [],
+  "agents": [],
+  "connectionProviders": [],
+  "logicFunctions": [
+    {
+      "universalIdentifier": "0a0ad7e3-22aa-46f9-8952-cc56ab043b83",
+      "name": "kairos-query-api",
+      "description": "Authenticated operational queries for bookings, calendar events, contact resolution, and read-only email access.",
+      "timeoutSeconds": 30,
+      "httpRouteTriggerSettings": {
+        "path": "/kairos/query",
+        "httpMethod": "POST",
+        "isAuthRequired": true
+      },
+      "handlerName": "default.config.handler",
+      "sourceHandlerPath": "src/logic-functions/kairos-query-api.logic-function.ts",
+      "builtHandlerPath": "src/logic-functions/kairos-query-api.logic-function.mjs",
+      "builtHandlerChecksum": "2e876dac6bd3c4ddd1e68e418a2f97df"
+    },
+    {
+      "universalIdentifier": "19643ca5-bb55-499c-9820-f19cba74c8cc",
+      "name": "on-booking-changed",
+      "description": "Recalculates readiness and idempotently creates expected service events.",
+      "timeoutSeconds": 30,
+      "databaseEventTriggerSettings": {
+        "eventName": "booking.*",
+        "updatedFields": [
+          "source",
+          "externalBookingId",
+          "guest",
+          "property",
+          "checkinAt",
+          "checkoutAt",
+          "arrivalWindowStart",
+          "arrivalWindowEnd",
+          "timezone",
+          "status"
+        ]
+      },
+      "handlerName": "default.config.handler",
+      "sourceHandlerPath": "src/logic-functions/on-booking-changed.logic-function.ts",
+      "builtHandlerPath": "src/logic-functions/on-booking-changed.logic-function.mjs",
+      "builtHandlerChecksum": "e25f26e66130500802c29b8233538e42"
+    },
+    {
+      "universalIdentifier": "1cc711a6-17d3-4edd-8453-86500768f042",
+      "name": "kairos-records-api",
+      "description": "Authenticated idempotent mutation boundary for Kairos operational records.",
+      "timeoutSeconds": 30,
+      "httpRouteTriggerSettings": {
+        "path": "/kairos/records",
+        "httpMethod": "POST",
+        "isAuthRequired": true
+      },
+      "handlerName": "default.config.handler",
+      "sourceHandlerPath": "src/logic-functions/kairos-records-api.logic-function.ts",
+      "builtHandlerPath": "src/logic-functions/kairos-records-api.logic-function.mjs",
+      "builtHandlerChecksum": "78699462248b0ce8b115070a57af3a87"
+    },
+    {
+      "universalIdentifier": "3a8ca6c3-972c-45c6-bfc3-d97f7775690c",
+      "name": "on-source-record-changed",
+      "description": "Preserves source provenance and requests booking reconciliation without applying source values.",
+      "timeoutSeconds": 30,
+      "databaseEventTriggerSettings": {
+        "eventName": "sourceRecord.*",
+        "updatedFields": [
+          "booking",
+          "parseStatus",
+          "error",
+          "contentHash"
+        ]
+      },
+      "handlerName": "default.config.handler",
+      "sourceHandlerPath": "src/logic-functions/on-source-record-changed.logic-function.ts",
+      "builtHandlerPath": "src/logic-functions/on-source-record-changed.logic-function.mjs",
+      "builtHandlerChecksum": "59a9a8989212b52d7480adb702f12836"
+    }
+  ],
+  "frontComponents": [],
+  "publicAssets": [],
+  "views": [
+    {
+      "universalIdentifier": "1a508295-522c-4dac-b826-6d275d62b8ff",
+      "name": "Today",
+      "objectUniversalIdentifier": "35e25a5e-b749-4e7f-b018-bb441efbe138",
+      "icon": "IconCalendarDue",
+      "key": "INDEX",
+      "position": 0,
+      "fields": [
+        {
+          "universalIdentifier": "d86c6a69-9592-4ba6-9a51-84c710721703",
+          "fieldMetadataUniversalIdentifier": "474c021e-31f7-47cf-ab61-54ce3e8d6c44",
+          "position": 0,
+          "isVisible": true,
+          "size": 240
+        },
+        {
+          "universalIdentifier": "17290908-bb04-4769-ae28-6441377275f3",
+          "fieldMetadataUniversalIdentifier": "ddd6e50c-f61d-48d8-9812-e34ce1794738",
+          "position": 1,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "8ee0650d-a91a-489b-84a5-f5c53c03d283",
+          "fieldMetadataUniversalIdentifier": "bd896bce-0169-43b2-b443-ff230633b517",
+          "position": 2,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "466e580a-3ab1-4729-afa0-94769533c35e",
+          "fieldMetadataUniversalIdentifier": "c0f49285-7d30-4857-b750-4e2184f9680f",
+          "position": 3,
+          "isVisible": true,
+          "size": 200
+        },
+        {
+          "universalIdentifier": "817e2829-0e93-404b-abe7-91945d9f75b4",
+          "fieldMetadataUniversalIdentifier": "e68faee7-3490-4ac1-a45e-d16ea1fb0684",
+          "position": 4,
+          "isVisible": true,
+          "size": 190
+        },
+        {
+          "universalIdentifier": "67d95568-ba5b-4241-84fc-d250b3e04740",
+          "fieldMetadataUniversalIdentifier": "3f9b745b-ed19-46f2-98a0-48b4eafa977b",
+          "position": 5,
+          "isVisible": true,
+          "size": 150
+        },
+        {
+          "universalIdentifier": "51101710-9d92-4535-9365-5c317bb9a15b",
+          "fieldMetadataUniversalIdentifier": "5711b870-a6b0-4c40-9994-8a2d8fc1119f",
+          "position": 6,
+          "isVisible": true,
+          "size": 220
+        }
+      ],
+      "filters": [
+        {
+          "universalIdentifier": "549d2e1e-ade8-44f5-9d39-2101b2da56a0",
+          "fieldMetadataUniversalIdentifier": "ddd6e50c-f61d-48d8-9812-e34ce1794738",
+          "operand": "IS_TODAY",
+          "value": ""
+        },
+        {
+          "universalIdentifier": "b6062d52-e951-4fea-8a54-1bc7e5991dfa",
+          "fieldMetadataUniversalIdentifier": "3f9b745b-ed19-46f2-98a0-48b4eafa977b",
+          "operand": "IS_NOT",
+          "value": [
+            "CANCELLED",
+            "COMPLETED"
+          ]
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "1e51457a-b38c-4557-a993-318de6c3c2b9",
+          "fieldMetadataUniversalIdentifier": "ddd6e50c-f61d-48d8-9812-e34ce1794738",
+          "direction": "ASC"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "2d050504-eac8-4d3c-a1c9-46e825bbde23",
+      "name": "Properties",
+      "objectUniversalIdentifier": "82c6e180-c624-4e8a-86e8-f5890f8adf6a",
+      "icon": "IconBuildingEstate",
+      "key": "INDEX",
+      "position": 0,
+      "fields": [
+        {
+          "universalIdentifier": "6a040696-2754-4e88-972b-fce7da693d46",
+          "fieldMetadataUniversalIdentifier": "f8439ff3-6be3-4fae-880d-b70f2b151345",
+          "position": 0,
+          "isVisible": true,
+          "size": 240
+        },
+        {
+          "universalIdentifier": "d4b7c3f9-0325-48af-b18a-1417801e4b23",
+          "fieldMetadataUniversalIdentifier": "13364159-f749-4dc3-991d-793a49d1a90d",
+          "position": 1,
+          "isVisible": true,
+          "size": 190
+        },
+        {
+          "universalIdentifier": "547be298-27fa-4c94-903d-b9fc772086f3",
+          "fieldMetadataUniversalIdentifier": "1ecc46f3-db57-44f5-a055-7f3c7486c207",
+          "position": 2,
+          "isVisible": true,
+          "size": 300
+        },
+        {
+          "universalIdentifier": "c7b90c16-df4f-43b7-b4a6-d5ceba79a2f4",
+          "fieldMetadataUniversalIdentifier": "ace214c6-eda3-4f58-ba7f-20a9bb86a9d1",
+          "position": 3,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "aded1026-1119-4ce8-a909-40e670f5ed06",
+          "fieldMetadataUniversalIdentifier": "dcb194bd-9bc6-488c-af3d-33a3fe5a6cd3",
+          "position": 4,
+          "isVisible": true,
+          "size": 100
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "2e3333d9-64bd-408a-a9bf-b199114e9093",
+      "name": "Booking Contact Methods",
+      "objectUniversalIdentifier": "d2ccfff1-20f4-494c-a889-bd1dec55a533",
+      "icon": "IconAddressBook",
+      "key": "INDEX",
+      "position": 0,
+      "fields": [
+        {
+          "universalIdentifier": "58c88acc-cc92-46d8-9f18-6c28d10cbf76",
+          "fieldMetadataUniversalIdentifier": "e678442d-a2be-490a-843d-51bea70af99d",
+          "position": 0,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "d8a40ff7-b268-4c91-87f0-4883dcfdd6d4",
+          "fieldMetadataUniversalIdentifier": "7e6829eb-b284-456e-b77c-108d3778ffe3",
+          "position": 1,
+          "isVisible": true,
+          "size": 190
+        },
+        {
+          "universalIdentifier": "5863e540-041c-4240-91f8-d9334402ce3e",
+          "fieldMetadataUniversalIdentifier": "2fb53b9d-b208-498f-9de6-8f4f0c371b07",
+          "position": 2,
+          "isVisible": true,
+          "size": 140
+        },
+        {
+          "universalIdentifier": "80d42ac3-d8c0-4cdb-a53a-f97bb7193ee0",
+          "fieldMetadataUniversalIdentifier": "0aae60eb-0db2-4761-b420-c0c29b3fbb1a",
+          "position": 3,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "03512bbe-daa4-481f-818a-1a4d40cc6ee2",
+          "fieldMetadataUniversalIdentifier": "3e09cc2e-7807-4e2e-91bb-866a54cf2985",
+          "position": 4,
+          "isVisible": true,
+          "size": 140
+        },
+        {
+          "universalIdentifier": "98f565d9-9c9a-42c6-b81d-4faa1b936a8e",
+          "fieldMetadataUniversalIdentifier": "3af68364-489c-4374-aa66-013da3a810fb",
+          "position": 5,
+          "isVisible": true,
+          "size": 140
+        },
+        {
+          "universalIdentifier": "2d4a3411-cef0-4947-8209-11a71590dc2b",
+          "fieldMetadataUniversalIdentifier": "8e2fa636-b7cc-4c5f-a6f1-296880e67e2f",
+          "position": 6,
+          "isVisible": true,
+          "size": 110
+        },
+        {
+          "universalIdentifier": "6389ab4e-9538-4919-9a37-bdff58b3db6e",
+          "fieldMetadataUniversalIdentifier": "ac02650f-adfd-4049-bda8-8ffb5e7ed687",
+          "position": 7,
+          "isVisible": true,
+          "size": 170
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "672261ed-5a7a-42e9-9429-6f517289d480",
+      "name": "Tomorrow's Check-ins",
+      "objectUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+      "icon": "IconCalendarTomorrow",
+      "key": "INDEX",
+      "position": 0,
+      "fields": [
+        {
+          "universalIdentifier": "075ec7ed-60ec-472e-893c-a7b5c87a0c5e",
+          "fieldMetadataUniversalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
+          "position": 0,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "394c40e4-17d1-44d6-99eb-d246b6f1c8d9",
+          "fieldMetadataUniversalIdentifier": "5148a52d-0657-4d70-ace8-864ea11584ac",
+          "position": 1,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "888e0c5b-d429-4af8-b980-20917a9fc67f",
+          "fieldMetadataUniversalIdentifier": "6e18badf-e8bf-4204-8b1c-baf533ba2351",
+          "position": 2,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "b1a06e95-5b77-4ef5-b1ed-504828095dc3",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "position": 3,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "cfccf15d-4d46-4f55-86be-166553999020",
+          "fieldMetadataUniversalIdentifier": "a9c91804-a412-4a60-98f5-326a1f7671b6",
+          "position": 4,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "44663d99-7b71-49fe-b2c3-8a9b4d6b81d9",
+          "fieldMetadataUniversalIdentifier": "3972438d-4732-422f-b886-21b23e6b7d6e",
+          "position": 5,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "8e6dac9a-8464-4be8-87d7-71bbccaabd2a",
+          "fieldMetadataUniversalIdentifier": "2528d4cd-d904-47d0-8841-3448314a3977",
+          "position": 6,
+          "isVisible": true,
+          "size": 260
+        },
+        {
+          "universalIdentifier": "68ac5edc-f432-44ae-a1dc-0c1ecc325cba",
+          "fieldMetadataUniversalIdentifier": "755a18b8-2fd1-43c6-931e-436edb682ebb",
+          "position": 7,
+          "isVisible": true,
+          "size": 150
+        }
+      ],
+      "filters": [
+        {
+          "universalIdentifier": "c4bf904a-851c-498e-a045-2fb2e28d98b5",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "operand": "IS_RELATIVE",
+          "value": "NEXT_1_DAY;;Europe/Lisbon;;"
+        },
+        {
+          "universalIdentifier": "b5f4c69c-b4f8-4cbb-abfc-308fe9a26531",
+          "fieldMetadataUniversalIdentifier": "755a18b8-2fd1-43c6-931e-436edb682ebb",
+          "operand": "IS_NOT",
+          "value": [
+            "CANCELLED",
+            "COMPLETED"
+          ]
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "90e90106-10e8-4ff4-ba76-c6836261d5db",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "direction": "ASC"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "6d7c6b1e-7956-4108-9fc9-90d645967bc2",
+      "name": "Operations Calendar",
+      "objectUniversalIdentifier": "35e25a5e-b749-4e7f-b018-bb441efbe138",
+      "type": "CALENDAR",
+      "icon": "IconCalendarEvent",
+      "position": 1,
+      "calendarLayout": "MONTH",
+      "calendarFieldMetadataUniversalIdentifier": "ddd6e50c-f61d-48d8-9812-e34ce1794738",
+      "fields": [
+        {
+          "universalIdentifier": "14ff607a-b601-4647-9442-a583bea5e613",
+          "fieldMetadataUniversalIdentifier": "474c021e-31f7-47cf-ab61-54ce3e8d6c44",
+          "position": 0,
+          "isVisible": true,
+          "size": 240
+        },
+        {
+          "universalIdentifier": "58d6ba95-417c-4184-803a-bd66a9193f8a",
+          "fieldMetadataUniversalIdentifier": "c0f49285-7d30-4857-b750-4e2184f9680f",
+          "position": 1,
+          "isVisible": true,
+          "size": 200
+        },
+        {
+          "universalIdentifier": "da1b8441-2fff-4574-b600-e1374323bf49",
+          "fieldMetadataUniversalIdentifier": "e68faee7-3490-4ac1-a45e-d16ea1fb0684",
+          "position": 2,
+          "isVisible": true,
+          "size": 190
+        },
+        {
+          "universalIdentifier": "f5c06427-627e-45cf-aecd-ea13bfcdd69d",
+          "fieldMetadataUniversalIdentifier": "3f9b745b-ed19-46f2-98a0-48b4eafa977b",
+          "position": 3,
+          "isVisible": true,
+          "size": 150
+        },
+        {
+          "universalIdentifier": "f9150f5b-3a2a-473f-b4a4-b25d737ce29a",
+          "fieldMetadataUniversalIdentifier": "ddd6e50c-f61d-48d8-9812-e34ce1794738",
+          "position": 4,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "5dfa1c29-ce2d-4a1b-bd75-30ebf315fb88",
+          "fieldMetadataUniversalIdentifier": "bd896bce-0169-43b2-b443-ff230633b517",
+          "position": 5,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "03969daa-28cf-4b14-aa70-ab8bf3097bbd",
+          "fieldMetadataUniversalIdentifier": "5711b870-a6b0-4c40-9994-8a2d8fc1119f",
+          "position": 6,
+          "isVisible": true,
+          "size": 220
+        }
+      ],
+      "filters": [
+        {
+          "universalIdentifier": "e756969c-42c3-49c1-9e44-88aceecdb39f",
+          "fieldMetadataUniversalIdentifier": "3f9b745b-ed19-46f2-98a0-48b4eafa977b",
+          "operand": "IS_NOT",
+          "value": [
+            "CANCELLED",
+            "COMPLETED"
+          ]
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "70f52751-d3a7-4e96-9010-e32e6cab525c",
+      "name": "Source Records",
+      "objectUniversalIdentifier": "90d7133e-f132-495f-949f-07f5450b53e4",
+      "icon": "IconDatabase",
+      "key": "INDEX",
+      "position": 0,
+      "fields": [
+        {
+          "universalIdentifier": "866960cc-6fd6-454b-b2a3-72948d7d7f10",
+          "fieldMetadataUniversalIdentifier": "7dcb9508-900a-4ffe-bf5f-85ab11d9c079",
+          "position": 0,
+          "isVisible": true,
+          "size": 240
+        },
+        {
+          "universalIdentifier": "837c8878-097a-4fe1-967b-4e46b5552a92",
+          "fieldMetadataUniversalIdentifier": "33917a6d-4085-4373-a54a-28f62f6bc62f",
+          "position": 1,
+          "isVisible": true,
+          "size": 140
+        },
+        {
+          "universalIdentifier": "d7aa1e6f-3ec3-49e7-bd86-88816e1fbe4a",
+          "fieldMetadataUniversalIdentifier": "09e4ecb5-a299-49dd-952b-3549e662d272",
+          "position": 2,
+          "isVisible": true,
+          "size": 200
+        },
+        {
+          "universalIdentifier": "58d48d05-4400-493f-a20c-69d86ccde7cd",
+          "fieldMetadataUniversalIdentifier": "cff68dfc-340a-477c-a828-5572f54544c0",
+          "position": 3,
+          "isVisible": true,
+          "size": 190
+        },
+        {
+          "universalIdentifier": "aa55408a-3c2d-45c4-b52d-f332b239269f",
+          "fieldMetadataUniversalIdentifier": "b1b423dc-8014-4b98-9445-0a1e34bb799f",
+          "position": 4,
+          "isVisible": true,
+          "size": 160
+        },
+        {
+          "universalIdentifier": "15241faa-ff7e-4817-85d3-a6e2b9c1d2e8",
+          "fieldMetadataUniversalIdentifier": "4b229514-568e-498f-9700-957f7f3761fc",
+          "position": 5,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "2b6d5214-1ef4-4249-8dde-cee8fc745988",
+          "fieldMetadataUniversalIdentifier": "17c33b77-4efc-4b67-a1ef-5235c1e62f34",
+          "position": 6,
+          "isVisible": true,
+          "size": 150
+        },
+        {
+          "universalIdentifier": "05e9c3ab-066f-4c48-a521-504d42d09252",
+          "fieldMetadataUniversalIdentifier": "58faf2a7-8511-44a9-8347-72f73d6ff2c2",
+          "position": 7,
+          "isVisible": true,
+          "size": 280
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "1b7754c7-da2d-49df-8f16-5511a8e067ee",
+          "fieldMetadataUniversalIdentifier": "4b229514-568e-498f-9700-957f7f3761fc",
+          "direction": "DESC"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "73a99d48-554c-408d-a786-044f351d969f",
+      "name": "Emails",
+      "objectUniversalIdentifier": "20202020-849a-4c3e-84f5-a25a7d802271",
+      "type": "TABLE",
+      "icon": "IconMail",
+      "position": 1,
+      "fields": [
+        {
+          "universalIdentifier": "13d47ad7-f8c2-46a8-810e-6d8b8c4d9602",
+          "fieldMetadataUniversalIdentifier": "a8ddbf8c-1137-45d1-b89e-5ffbd83f67c8",
+          "position": 0,
+          "isVisible": true,
+          "size": 360
+        },
+        {
+          "universalIdentifier": "063bbf1d-f613-422b-a6be-c6b4628c48d3",
+          "fieldMetadataUniversalIdentifier": "20202020-3115-404f-aade-e1154b28e35a",
+          "position": 1,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "9e1b5af5-0cd5-4631-aa91-b3ecbdd84456",
+          "fieldMetadataUniversalIdentifier": "71583a40-84a4-5ee6-85d5-1939c38da9ee",
+          "position": 2,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "e2d97e09-2db2-422b-8171-38616b6fdfa8",
+          "fieldMetadataUniversalIdentifier": "4169d73e-6223-5f86-901b-a7d77f9e2469",
+          "position": 3,
+          "isVisible": true,
+          "size": 180
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "3fdc089d-4f41-49c3-a7d6-1b2e88279f9a",
+          "fieldMetadataUniversalIdentifier": "71583a40-84a4-5ee6-85d5-1939c38da9ee",
+          "direction": "DESC"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "99fba5b5-a9b5-4c28-8b80-80c9076c0169",
+      "name": "Communications",
+      "objectUniversalIdentifier": "980a5656-1746-4ee2-be74-ee622ab24887",
+      "icon": "IconMessages",
+      "key": "INDEX",
+      "position": 0,
+      "fields": [
+        {
+          "universalIdentifier": "86f099db-c791-469d-8454-41a5fcf73b85",
+          "fieldMetadataUniversalIdentifier": "2dc42515-35d3-45cf-9718-ec336480306f",
+          "position": 0,
+          "isVisible": true,
+          "size": 320
+        },
+        {
+          "universalIdentifier": "c3dc34a1-8277-4245-8650-a5dcc7e01970",
+          "fieldMetadataUniversalIdentifier": "99f1eec4-2d48-4036-908a-28a765ba8186",
+          "position": 1,
+          "isVisible": true,
+          "size": 190
+        },
+        {
+          "universalIdentifier": "e0e0c988-3d16-4a86-b1cc-4c6cc6ef8b8b",
+          "fieldMetadataUniversalIdentifier": "8eb24112-8dce-4247-bb25-7e43bbecdd8b",
+          "position": 2,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "f83ec289-f11a-44f6-9f40-25cd4863d1e9",
+          "fieldMetadataUniversalIdentifier": "79c6978f-d902-4d11-ae57-36ab111c0f71",
+          "position": 3,
+          "isVisible": true,
+          "size": 130
+        },
+        {
+          "universalIdentifier": "478a4b4c-d2b7-4ef9-b126-30e3b4f3f1ab",
+          "fieldMetadataUniversalIdentifier": "2d9ca981-9fe9-46aa-a730-76ac72f22b06",
+          "position": 4,
+          "isVisible": true,
+          "size": 130
+        },
+        {
+          "universalIdentifier": "247583b0-291b-46dc-9216-26a65eda007d",
+          "fieldMetadataUniversalIdentifier": "be9d8aaf-8571-4bbe-841e-96a576553abe",
+          "position": 5,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "491cb744-9729-40d3-b567-c896bbd70d74",
+          "fieldMetadataUniversalIdentifier": "0b464587-bf67-4b7d-b0ce-d121ef0ef211",
+          "position": 6,
+          "isVisible": true,
+          "size": 130
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "a96a080c-01e7-4a07-8ecf-7af382d5e155",
+          "fieldMetadataUniversalIdentifier": "be9d8aaf-8571-4bbe-841e-96a576553abe",
+          "direction": "DESC"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "ae2215a3-f9ea-40e6-b4fb-1861ce8e192e",
+      "name": "Needs Information",
+      "objectUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+      "icon": "IconInfoTriangle",
+      "key": "INDEX",
+      "position": 1,
+      "fields": [
+        {
+          "universalIdentifier": "698e095c-501f-4f1b-a3fc-05d4cc74d060",
+          "fieldMetadataUniversalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
+          "position": 0,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "d74bb242-be1b-49f6-ac78-2606a05b39b1",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "position": 1,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "9a096e4b-dbf1-4188-9941-afeaeb06e8ab",
+          "fieldMetadataUniversalIdentifier": "5148a52d-0657-4d70-ace8-864ea11584ac",
+          "position": 2,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "7c9ce5f5-a559-43b8-92f1-39007e0a761f",
+          "fieldMetadataUniversalIdentifier": "6e18badf-e8bf-4204-8b1c-baf533ba2351",
+          "position": 3,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "659a29cf-d8ed-4464-84c8-6813f702c525",
+          "fieldMetadataUniversalIdentifier": "a9c91804-a412-4a60-98f5-326a1f7671b6",
+          "position": 4,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "365f3808-a745-45a1-8de7-34f1b9a9fdc2",
+          "fieldMetadataUniversalIdentifier": "3972438d-4732-422f-b886-21b23e6b7d6e",
+          "position": 5,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "3356d186-ebfd-4410-b2d4-3c85c01e4b3d",
+          "fieldMetadataUniversalIdentifier": "2528d4cd-d904-47d0-8841-3448314a3977",
+          "position": 6,
+          "isVisible": true,
+          "size": 300
+        },
+        {
+          "universalIdentifier": "a3fb323a-edc5-461e-b1cc-c63e854c8bfc",
+          "fieldMetadataUniversalIdentifier": "3239c76c-53c7-4c2f-88e9-f84e773be608",
+          "position": 7,
+          "isVisible": true,
+          "size": 150
+        }
+      ],
+      "filterGroups": [
+        {
+          "universalIdentifier": "1f147506-37cc-4255-8c96-0ced5d319ef8",
+          "logicalOperator": "OR",
+          "positionInViewFilterGroup": 0
+        }
+      ],
+      "filters": [
+        {
+          "universalIdentifier": "1b8e15fb-3eb3-4029-9221-2614d6065d51",
+          "fieldMetadataUniversalIdentifier": "3972438d-4732-422f-b886-21b23e6b7d6e",
+          "operand": "IS_NOT",
+          "value": [
+            "READY"
+          ],
+          "viewFilterGroupUniversalIdentifier": "1f147506-37cc-4255-8c96-0ced5d319ef8",
+          "positionInViewFilterGroup": 0
+        },
+        {
+          "universalIdentifier": "0deedb2e-6db3-49c2-81ce-229e6cf31d64",
+          "fieldMetadataUniversalIdentifier": "3239c76c-53c7-4c2f-88e9-f84e773be608",
+          "operand": "IS",
+          "value": true,
+          "viewFilterGroupUniversalIdentifier": "1f147506-37cc-4255-8c96-0ced5d319ef8",
+          "positionInViewFilterGroup": 1
+        },
+        {
+          "universalIdentifier": "ee712244-042d-40e2-880e-d28b2bc19106",
+          "fieldMetadataUniversalIdentifier": "a9c91804-a412-4a60-98f5-326a1f7671b6",
+          "operand": "IS_EMPTY",
+          "value": "",
+          "viewFilterGroupUniversalIdentifier": "1f147506-37cc-4255-8c96-0ced5d319ef8",
+          "positionInViewFilterGroup": 2
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "7fff9e88-ed39-4054-8913-05947eb17874",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "direction": "ASC"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "caf1736f-5442-4aab-897a-563d6e878cb2",
+      "name": "Problems / Human Review",
+      "objectUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+      "icon": "IconAlertTriangle",
+      "key": "INDEX",
+      "position": 3,
+      "fields": [
+        {
+          "universalIdentifier": "c1d0bf80-c6d8-40dd-92cc-a50f17af52ad",
+          "fieldMetadataUniversalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
+          "position": 0,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "2d61ad1d-2a57-4ec7-904f-1b2c3f4f0af8",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "position": 1,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "c8743840-832a-44cd-8f04-bfe03f00b2ef",
+          "fieldMetadataUniversalIdentifier": "5148a52d-0657-4d70-ace8-864ea11584ac",
+          "position": 2,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "7b245abd-0080-4f83-ac1f-13738212da72",
+          "fieldMetadataUniversalIdentifier": "6e18badf-e8bf-4204-8b1c-baf533ba2351",
+          "position": 3,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "8fe5599b-b142-479f-b5b1-fd44c1b336f0",
+          "fieldMetadataUniversalIdentifier": "a9c91804-a412-4a60-98f5-326a1f7671b6",
+          "position": 4,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "61d2b1ae-bc4f-4f33-a5a9-e5cfc99f08e0",
+          "fieldMetadataUniversalIdentifier": "3972438d-4732-422f-b886-21b23e6b7d6e",
+          "position": 5,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "bbcd52b8-a919-4eb5-8ee2-91bb54d163d1",
+          "fieldMetadataUniversalIdentifier": "fd72020a-d71e-49ad-a5ed-f08db4c82b67",
+          "position": 6,
+          "isVisible": true,
+          "size": 140
+        },
+        {
+          "universalIdentifier": "7f63b437-4f6d-45b2-adff-5e5cd502bde8",
+          "fieldMetadataUniversalIdentifier": "2528d4cd-d904-47d0-8841-3448314a3977",
+          "position": 7,
+          "isVisible": true,
+          "size": 300
+        }
+      ],
+      "filterGroups": [
+        {
+          "universalIdentifier": "bc41ed8e-b0f9-4cc4-a43a-5bd95627daab",
+          "logicalOperator": "OR",
+          "positionInViewFilterGroup": 0
+        }
+      ],
+      "filters": [
+        {
+          "universalIdentifier": "0c4c1bf3-628b-495e-a7f5-22a601e0c2c8",
+          "fieldMetadataUniversalIdentifier": "3239c76c-53c7-4c2f-88e9-f84e773be608",
+          "operand": "IS",
+          "value": true,
+          "viewFilterGroupUniversalIdentifier": "bc41ed8e-b0f9-4cc4-a43a-5bd95627daab",
+          "positionInViewFilterGroup": 0
+        },
+        {
+          "universalIdentifier": "dfad017c-1a4a-4c51-8207-005200f3985d",
+          "fieldMetadataUniversalIdentifier": "755a18b8-2fd1-43c6-931e-436edb682ebb",
+          "operand": "IS",
+          "value": [
+            "PROBLEM"
+          ],
+          "viewFilterGroupUniversalIdentifier": "bc41ed8e-b0f9-4cc4-a43a-5bd95627daab",
+          "positionInViewFilterGroup": 1
+        },
+        {
+          "universalIdentifier": "06e1f4e0-7af3-452a-ad31-322ece6ff9f5",
+          "fieldMetadataUniversalIdentifier": "fd72020a-d71e-49ad-a5ed-f08db4c82b67",
+          "operand": "IS",
+          "value": [
+            "HIGH",
+            "CRITICAL"
+          ],
+          "viewFilterGroupUniversalIdentifier": "bc41ed8e-b0f9-4cc4-a43a-5bd95627daab",
+          "positionInViewFilterGroup": 2
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "3fe157eb-232e-4cea-b395-6606d1987248",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "direction": "ASC"
+        }
+      ]
+    },
+    {
+      "universalIdentifier": "e0316cf4-29ea-4169-ab14-9aac27f36377",
+      "name": "Ready",
+      "objectUniversalIdentifier": "5535c4e3-5781-4a81-8bbf-332e89a8ed52",
+      "icon": "IconCircleCheck",
+      "key": "INDEX",
+      "position": 2,
+      "fields": [
+        {
+          "universalIdentifier": "c56dde1f-05ab-41da-ba2f-7a9edfa79881",
+          "fieldMetadataUniversalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
+          "position": 0,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "051b39c2-0dec-40ed-9943-f6569f1552c3",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "position": 1,
+          "isVisible": true,
+          "size": 170
+        },
+        {
+          "universalIdentifier": "852dbdda-c1d9-492a-a8f3-a7a9243eb01a",
+          "fieldMetadataUniversalIdentifier": "5148a52d-0657-4d70-ace8-864ea11584ac",
+          "position": 2,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "b2c82a72-a79a-4e27-81eb-1305db154b6a",
+          "fieldMetadataUniversalIdentifier": "6e18badf-e8bf-4204-8b1c-baf533ba2351",
+          "position": 3,
+          "isVisible": true,
+          "size": 180
+        },
+        {
+          "universalIdentifier": "5570b11f-d7b7-4ef8-9fdb-98ad02610a9c",
+          "fieldMetadataUniversalIdentifier": "a9c91804-a412-4a60-98f5-326a1f7671b6",
+          "position": 4,
+          "isVisible": true,
+          "size": 220
+        },
+        {
+          "universalIdentifier": "9fa05e37-71a0-4a30-bf8b-929823b7ae13",
+          "fieldMetadataUniversalIdentifier": "755a18b8-2fd1-43c6-931e-436edb682ebb",
+          "position": 5,
+          "isVisible": true,
+          "size": 150
+        }
+      ],
+      "filters": [
+        {
+          "universalIdentifier": "ebdf7e3c-3560-41a1-a083-fe919908b383",
+          "fieldMetadataUniversalIdentifier": "3972438d-4732-422f-b886-21b23e6b7d6e",
+          "operand": "IS",
+          "value": [
+            "READY"
+          ]
+        },
+        {
+          "universalIdentifier": "f11d7b08-4787-4fcc-b2ad-cde3a4b9d965",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "operand": "IS_IN_FUTURE",
+          "value": ""
+        },
+        {
+          "universalIdentifier": "405b1117-1670-430b-8e58-62db5b8f60a5",
+          "fieldMetadataUniversalIdentifier": "755a18b8-2fd1-43c6-931e-436edb682ebb",
+          "operand": "IS_NOT",
+          "value": [
+            "CANCELLED",
+            "COMPLETED"
+          ]
+        }
+      ],
+      "sorts": [
+        {
+          "universalIdentifier": "6c8624b9-52d4-43e1-bd47-e5264df63b2d",
+          "fieldMetadataUniversalIdentifier": "69faba04-200a-4e31-ba6a-fa6d2832a356",
+          "direction": "ASC"
+        }
+      ]
+    }
+  ],
+  "viewFields": [],
+  "navigationMenuItems": [
+    {
+      "universalIdentifier": "0f0b44e0-cd07-49cf-a7c4-83be950edf35",
+      "type": "VIEW",
+      "name": "Communications",
+      "icon": "IconMessages",
+      "position": 8,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "99fba5b5-a9b5-4c28-8b80-80c9076c0169"
+    },
+    {
+      "universalIdentifier": "26812caf-fc48-446c-84a4-d1df42d5ed09",
+      "type": "VIEW",
+      "name": "Emails",
+      "icon": "IconMail",
+      "position": 10,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "73a99d48-554c-408d-a786-044f351d969f"
+    },
+    {
+      "universalIdentifier": "2b2e3811-aebd-4407-b1fe-16b08ec11e46",
+      "type": "VIEW",
+      "name": "Contact Methods",
+      "icon": "IconAddressBook",
+      "position": 7,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "2e3333d9-64bd-408a-a9bf-b199114e9093"
+    },
+    {
+      "universalIdentifier": "3c49dfb2-ce9a-46e3-9822-b5af51b6083b",
+      "type": "VIEW",
+      "name": "Operations Calendar",
+      "icon": "IconCalendarEvent",
+      "position": 2,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "6d7c6b1e-7956-4108-9fc9-90d645967bc2"
+    },
+    {
+      "universalIdentifier": "424e657d-a3c3-4ba1-b79a-9d2ef488910e",
+      "type": "VIEW",
+      "name": "Source Records",
+      "icon": "IconDatabase",
+      "position": 9,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "70f52751-d3a7-4e96-9010-e32e6cab525c"
+    },
+    {
+      "universalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "type": "FOLDER",
+      "name": "Kairos Operations",
+      "icon": "IconClockCog",
+      "position": 0
+    },
+    {
+      "universalIdentifier": "77a526f0-c739-4d24-9405-d91b116c68a0",
+      "type": "VIEW",
+      "name": "Today",
+      "icon": "IconCalendarDue",
+      "position": 1,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "1a508295-522c-4dac-b826-6d275d62b8ff"
+    },
+    {
+      "universalIdentifier": "aad528de-5ab9-4bf7-9953-4806c86b162e",
+      "type": "VIEW",
+      "name": "Properties",
+      "icon": "IconBuildingEstate",
+      "position": 6,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "2d050504-eac8-4d3c-a1c9-46e825bbde23"
+    },
+    {
+      "universalIdentifier": "c4c6d444-fc57-4536-91ff-8a17e338fee8",
+      "type": "VIEW",
+      "name": "Ready",
+      "icon": "IconCircleCheck",
+      "position": 4,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "e0316cf4-29ea-4169-ab14-9aac27f36377"
+    },
+    {
+      "universalIdentifier": "cad3ea93-9d61-4205-be0b-20aa48d0f79c",
+      "type": "VIEW",
+      "name": "Problems / Human Review",
+      "icon": "IconAlertTriangle",
+      "position": 5,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "caf1736f-5442-4aab-897a-563d6e878cb2"
+    },
+    {
+      "universalIdentifier": "de168ec8-173b-4028-bb46-e2be912afecd",
+      "type": "VIEW",
+      "name": "Tomorrow's Check-ins",
+      "icon": "IconCalendarTomorrow",
+      "position": 0,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "672261ed-5a7a-42e9-9429-6f517289d480"
+    },
+    {
+      "universalIdentifier": "e1abca57-ab93-466f-b70a-6b6a5d0bf145",
+      "type": "VIEW",
+      "name": "Needs Information",
+      "icon": "IconInfoTriangle",
+      "position": 3,
+      "folderUniversalIdentifier": "5689d050-fcf9-4af4-aa9a-1db51b1c6a9b",
+      "viewUniversalIdentifier": "ae2215a3-f9ea-40e6-b4fb-1861ce8e192e"
+    }
+  ],
+  "pageLayouts": [],
+  "pageLayoutTabs": [],
+  "commandMenuItems": []
+}

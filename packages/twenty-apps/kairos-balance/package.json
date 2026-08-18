@@ -1,0 +1,29 @@
+{
+  "name": "kairos-balance",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": "please-use-yarn",
+    "yarn": ">=4.0.2",
+    "twenty": ">=2.29.0"
+  },
+  "keywords": [
+    "twenty-app"
+  ],
+  "packageManager": "yarn@4.13.0",
+  "scripts": {
+    "twenty": "twenty"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "twenty-client-sdk": "portal:../../twenty-client-sdk",
+    "twenty-sdk": "portal:../../twenty-sdk",
+    "typescript": "^5.9.3"
+  },
+  "resolutions": {
+    "twenty-client-sdk": "portal:../../twenty-client-sdk"
+  }
+}

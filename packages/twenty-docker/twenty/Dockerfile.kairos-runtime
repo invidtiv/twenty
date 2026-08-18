@@ -1,0 +1,13 @@
+FROM twentycrm/twenty-app-dev:kairos-from-v229 AS kairos-build
+
+# Keep the exact upstream v2.29 runtime used by Kairos Operations.  The local
+# build supplies only Twenty's compiled application artifacts; PostgreSQL,
+# Redis, s6, Node, and system libraries remain byte-for-byte upstream.
+FROM twentycrm/twenty-app-dev@sha256:d90db565538da51ae65dbfe2258c7f5fd0c26c3dcfc84cf12c37401cb13af582
+
+COPY --from=kairos-build /app/packages/twenty-server/dist /app/packages/twenty-server/dist
+COPY --from=kairos-build /app/packages/twenty-shared/dist /app/packages/twenty-shared/dist
+COPY --from=kairos-build /app/packages/twenty-emails/dist /app/packages/twenty-emails/dist
+COPY --from=kairos-build /app/packages/twenty-client-sdk/dist /app/packages/twenty-client-sdk/dist
+
+ENV APP_VERSION=v2.29.0
