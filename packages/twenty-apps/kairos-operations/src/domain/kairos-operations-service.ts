@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { RecordsRepository } from 'src/domain/types';
-import { appendMissingInformation, bookingSelection, compactRecord, contactSelection, emailAssociationSelection, emailMessageSelection, emailParticipantSelection, emailThreadSelection, linkValue, normalizeInternationalPhone, normalizeOption, objectValue, recordSelection, requiredText, serviceEventSelection, stableBookingUuid, textValue, timelineBookingSelection, timelinePropertySelection, validDate, validLimit, whatsappWatchSelection } from 'src/domain/utils';
+import { appendMissingInformation, bookingSelection, compactRecord, contactSelection, emailAssociationSelection, emailMessageSelection, emailParticipantSelection, emailThreadSelection, linkValue, normalizeInternationalPhone, normalizeOption, objectValue, optionalText, recordSelection, requiredText, serviceEventSelection, stableBookingUuid, textValue, timelineBookingSelection, timelinePropertySelection, validDate, validLimit, whatsappWatchSelection } from 'src/domain/utils';
 import { getZonedDayBounds } from 'src/domain/timezone';
 import { buildExpectedServiceEvents } from 'src/domain/expected-service-events';
 import { selectPreferredContact } from 'src/domain/contact-selection';
@@ -227,8 +227,11 @@ export class KairosOperationsService {
   async upsertServiceEvent(input) {
     const source = normalizeOption(input.source);
     const eventType = normalizeOption(input.eventType);
+    // Lock-outs block operator time on their own (doctor appointments,
+    // training, personal commitments) and may exist without any booking.
+    const bookingId = eventType === "LOCKOUT" ? optionalText(input.bookingId) : requiredText(input.bookingId, "bookingId");
     const sourceSlot = input.externalEventId ?? input.sourceSlot ?? eventType;
-    const sourceEventKey = `${input.bookingId}:${source}:${sourceSlot}`;
+    const sourceEventKey = `${bookingId ?? "STANDALONE"}:${source}:${sourceSlot}`;
     const [existing] = await this.repository.findMany(
       "serviceEvents",
       { filter: { sourceEventKey: { eq: sourceEventKey } }, first: 1 },
@@ -238,7 +241,7 @@ export class KairosOperationsService {
       "serviceEvents",
       compactRecord({
         sourceEventKey,
-        bookingId: requiredText(input.bookingId, "bookingId"),
+        bookingId,
         eventType,
         title: requiredText(input.title, "title"),
         startsAt: requiredText(input.startsAt, "startsAt"),
@@ -561,9 +564,6 @@ export class KairosOperationsService {
       bookingSelection
     );
     const expectedEvents = buildExpectedServiceEvents(updatedBooking);
-    for (const event of expectedEvents) {
-      await this.repository.upsert("serviceEvents", event, recordSelection);
-    }
     const expectedEventKeys = new Set(
       expectedEvents.map((event) => event.sourceEventKey)
     );
@@ -578,6 +578,26 @@ export class KairosOperationsService {
       },
       { id: true, sourceEventKey: true, eventType: true, status: true }
     );
+    const existingStatusByKey = new Map(
+      derivedEvents
+        .map((event) => [textValue(event, "sourceEventKey"), textValue(event, "status")])
+        .filter((pair) => pair[0])
+    );
+    for (const event of expectedEvents) {
+      const existingStatus = existingStatusByKey.get(event.sourceEventKey);
+      // Re-sync (TalkGuest -> on-booking-changed) must never clobber a
+      // terminal occurrence back to SCHEDULED: that resurrected completed
+      // events and refired the reminder scheduler. Preserve COMPLETED/CANCELLED.
+      const status =
+        existingStatus === "COMPLETED" || existingStatus === "CANCELLED"
+          ? existingStatus
+          : event.status;
+      await this.repository.upsert(
+        "serviceEvents",
+        status ? { ...event, status } : event,
+        recordSelection
+      );
+    }
     const derivedEventTypes = /* @__PURE__ */ new Set([
       "GUEST_CONTACT_DEADLINE",
       "DAY_BEFORE_PREPARATION",
