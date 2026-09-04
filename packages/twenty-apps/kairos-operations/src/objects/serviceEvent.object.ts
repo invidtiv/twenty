@@ -1,5 +1,7 @@
 import { FieldType, OnDeleteAction, RelationType, defineObject } from 'twenty-sdk/define';
 
+import { kairosId } from 'src/constants/kairos-id';
+
 export default defineObject(
 {
   "universalIdentifier": "35e25a5e-b749-4e7f-b018-bb441efbe138",
@@ -97,6 +99,13 @@ export default defineObject(
           "position": 6,
           "color": "gray",
           "id": "f955869f-4a8f-5dc6-a34b-028ff8d6253e"
+        },
+        {
+          "value": "LOCKOUT",
+          "label": "Lock-out",
+          "position": 7,
+          "color": "red",
+          "id": kairosId('serviceEvent.eventType.LOCKOUT')
         }
       ]
     },

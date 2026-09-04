@@ -10,12 +10,14 @@ import { shiftZonedCalendarDays } from 'src/domain/timezone';
 import {
   buildTimelineRows,
   getTimelineDays,
+  getTimelineLockouts,
   getTimelineRange,
   type TimelineRow,
 } from 'src/front-components/operations-timeline-model';
 import {
   BookingRow,
   LABEL_WIDTH,
+  LockoutLaneBar,
   TIMELINE_TIME_ZONE,
   ToolbarButton,
   colorsByEventType,
@@ -123,6 +125,10 @@ const OperationsTimeline = () => {
   );
   const rangeStart = range.start.toISOString();
   const rangeEnd = range.end.toISOString();
+  const lockouts = useMemo(
+    () => (timeline ? getTimelineLockouts(timeline) : []),
+    [timeline],
+  );
 
   return (
     <div style={{ height: '100%', minHeight: 620, display: 'flex', flexDirection: 'column', background: '#F7F8FA', color: '#20242C', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
@@ -131,7 +137,7 @@ const OperationsTimeline = () => {
           <div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>Operations Timeline</div>
             <div style={{ marginTop: 4, fontSize: 12, color: '#737B8C' }}>
-              Stay spans, contact deadlines, check-ins and check-outs by property
+              Stay spans, contact deadlines, check-ins, check-outs and lock-outs by property
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
@@ -160,6 +166,20 @@ const OperationsTimeline = () => {
           <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 20, height: 6, borderRadius: 4, background: '#6D75DF' }} /> Guest stay
           </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span
+              style={{
+                width: 20,
+                height: 12,
+                borderRadius: 4,
+                background: colorsByEventType.LOCKOUT.background,
+                backgroundImage:
+                  'repeating-linear-gradient(45deg, rgba(179, 64, 64, 0.14) 0px, rgba(179, 64, 64, 0.14) 3px, transparent 3px, transparent 7px)',
+                border: '1px dashed #B3404099',
+              }}
+            />{' '}
+            Lock-out (unavailable)
+          </span>
         </div>
       </div>
 
@@ -185,8 +205,30 @@ const OperationsTimeline = () => {
               {error}
             </div>
           )}
-          {!loading && !error && groups.length === 0 && (
-            <div style={{ padding: 36, color: '#737B8C', fontSize: 13 }}>No bookings overlap this window.</div>
+          {!loading && !error && lockouts.length > 0 && (
+            <div style={{ display: 'flex', minHeight: 44, background: '#FFF6F6', borderBottom: '1px solid #F0DADA' }}>
+              <div style={{ position: 'sticky', left: 0, width: LABEL_WIDTH, minWidth: LABEL_WIDTH, zIndex: 8, boxSizing: 'border-box', padding: '14px 18px', borderRight: '1px solid #DDE0E7', background: '#FFF6F6', fontSize: 11, fontWeight: 700, color: '#B34040' }}>
+                UNAVAILABLE / LOCK-OUTS · {lockouts.length}
+              </div>
+              <div
+                style={{
+                  position: 'relative',
+                  width: dayCount * 92,
+                  minWidth: dayCount * 92,
+                  backgroundImage:
+                    'repeating-linear-gradient(to right, transparent 0, transparent 91px, #F1E2E2 91px, #F1E2E2 92px)',
+                }}
+              >
+                {lockouts.map((lockout) => (
+                  <LockoutLaneBar
+                    key={lockout.id as string}
+                    event={lockout}
+                    rangeStart={rangeStart}
+                    rangeEnd={rangeEnd}
+                  />
+                ))}
+              </div>
+            </div>
           )}
           {!loading && !error && groups.map(({ id, name, rows: propertyRows }) => (
             <div key={id}>
@@ -197,10 +239,20 @@ const OperationsTimeline = () => {
                 <div style={{ width: dayCount * 92, minWidth: dayCount * 92 }} />
               </div>
               {propertyRows.map((row) => (
-                <BookingRow key={row.booking.id} row={row} rangeStart={rangeStart} rangeEnd={rangeEnd} dayCount={dayCount} />
+                <BookingRow
+                  key={row.booking.id}
+                  row={row}
+                  rangeStart={rangeStart}
+                  rangeEnd={rangeEnd}
+                  dayCount={dayCount}
+                  lockouts={lockouts}
+                />
               ))}
             </div>
           ))}
+          {!loading && !error && groups.length === 0 && lockouts.length === 0 && (
+            <div style={{ padding: 36, color: '#737B8C', fontSize: 13 }}>No bookings or lock-outs overlap this window.</div>
+          )}
         </div>
       </div>
     </div>

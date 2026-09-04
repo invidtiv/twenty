@@ -15,6 +15,7 @@ export const colorsByEventType: Record<string, { background: string; text: strin
   CHECK_OUT: { background: '#E7EEFF', text: '#3559A8' },
   CLEANING: { background: '#F0E6FF', text: '#7048A8' },
   KEY_HANDOVER: { background: '#E6F7F6', text: '#257B76' },
+  LOCKOUT: { background: '#FFE3E3', text: '#B34040' },
 };
 
 export const eventLabel = (event: OperationsTimelineEvent): string =>
@@ -25,10 +26,15 @@ export const eventLabel = (event: OperationsTimelineEvent): string =>
       CHECK_OUT: 'Check-out',
       CLEANING: 'Cleaning',
       KEY_HANDOVER: 'Key handover',
+      LOCKOUT: 'Lock-out',
     } as Record<string, string>
   )[event.eventType as string] ??
   (event.title as string) ??
   'Service event';
+
+// Diagonal hatch used for every locked-out period overlay.
+export const LOCKOUT_HATCH =
+  'repeating-linear-gradient(45deg, rgba(179, 64, 64, 0.14) 0px, rgba(179, 64, 64, 0.14) 5px, transparent 5px, transparent 11px)';
 
 const isTimePending = (event: OperationsTimelineEvent): boolean =>
   ((event.title as string) ?? '').toLowerCase().includes('time pending') === true;
@@ -138,16 +144,138 @@ export const EventChip = ({
   );
 };
 
+const formatLockoutTimeRange = (
+  startsAt?: string,
+  endsAt?: string,
+  timeZone: string = TIMELINE_TIME_ZONE,
+): string => {
+  if (!startsAt) return '';
+  const start = formatEventTime(startsAt, timeZone);
+  return endsAt ? `${start} \u2013 ${formatEventTime(endsAt, timeZone)}` : start;
+};
+
+// Hatched overlay marking an operator-unavailable period on every row.
+export const LockoutBand = ({
+  event,
+  rangeStart,
+  rangeEnd,
+}: {
+  event: OperationsTimelineEvent;
+  rangeStart: string;
+  rangeEnd: string;
+}) => {
+  const geometry = getEventGeometry(
+    event.startsAt as string,
+    event.endsAt as string,
+    rangeStart,
+    rangeEnd,
+    TIMELINE_TIME_ZONE,
+  );
+  if (!geometry) return null;
+  return (
+    <div
+      aria-hidden
+      title={
+        ((event.title as string) ?? 'Lock-out') +
+        (event.location ? ` \u00b7 ${(event.location as string)}` : '')
+      }
+      style={{
+        position: 'absolute',
+        left: geometry.leftPercent + '%',
+        width: geometry.widthPercent + '%',
+        top: 4,
+        bottom: 4,
+        minWidth: 8,
+        backgroundImage: LOCKOUT_HATCH,
+        borderLeft: '1px dashed rgba(179, 64, 64, 0.55)',
+        borderRight: '1px dashed rgba(179, 64, 64, 0.35)',
+        borderRadius: 4,
+        pointerEvents: 'none',
+        zIndex: 1,
+      }}
+    />
+  );
+};
+
+export const LockoutLaneBar = ({
+  event,
+  rangeStart,
+  rangeEnd,
+}: {
+  event: OperationsTimelineEvent;
+  rangeStart: string;
+  rangeEnd: string;
+}) => {
+  const geometry = getEventGeometry(
+    event.startsAt as string,
+    event.endsAt as string,
+    rangeStart,
+    rangeEnd,
+    TIMELINE_TIME_ZONE,
+  );
+  if (!geometry) return null;
+  const timeRange = formatLockoutTimeRange(
+    event.startsAt as string,
+    event.endsAt as string,
+  );
+  const label =
+    ((event.title as string) ?? '').trim() || 'Lock-out';
+  const detailParts = [
+    timeRange,
+    (event.location as string) ?? '',
+    (event.notes as string) ?? '',
+  ].filter(Boolean);
+  const details = detailParts.length > 0 ? ' \u00b7 ' + detailParts.join(' \u00b7 ') : '';
+  return (
+    <div
+      title={label + details + ((event.status === 'COMPLETED' ? ' \u00b7 Completed' : ''))}
+      style={{
+        position: 'absolute',
+        left: geometry.leftPercent + '%',
+        maxWidth: Math.max(100 - geometry.leftPercent - 1, 10) + '%',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        height: 26,
+        borderRadius: 6,
+        border: '1px solid #B3404055',
+        borderLeft: '4px solid #B34040',
+        background: colorsByEventType.LOCKOUT.background,
+        backgroundImage: LOCKOUT_HATCH,
+        opacity: event.status === 'COMPLETED' ? 0.55 : 1,
+        padding: '5px 9px',
+        fontSize: 11,
+        fontWeight: 650,
+        color: '#7E2B2B',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        zIndex: 2,
+      }}
+    >
+      {label}
+      {details && (
+        <span style={{ fontWeight: 500, color: '#A05555', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {details}
+        </span>
+      )}
+    </div>
+  );
+};
+
 export const BookingRow = ({
   row,
   rangeStart,
   rangeEnd,
   dayCount,
+  lockouts = [],
 }: {
   row: TimelineRow;
   rangeStart: string;
   rangeEnd: string;
   dayCount: number;
+  lockouts?: OperationsTimelineEvent[];
 }) => {
   const geometry = getEventGeometry(
     row.stayStartsAt,
@@ -227,6 +355,14 @@ export const BookingRow = ({
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}
             index={index}
+          />
+        ))}
+        {lockouts.map((lockout) => (
+          <LockoutBand
+            key={lockout.id as string}
+            event={lockout}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
           />
         ))}
       </div>

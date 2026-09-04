@@ -82,6 +82,22 @@ export const getEventGeometry = (
   };
 };
 
+export const getTimelineLockouts = (
+  timeline: OperationsTimeline,
+): OperationsTimelineEvent[] =>
+  timeline.events
+    .filter(
+      (event) =>
+        event.eventType === 'LOCKOUT' &&
+        event.status !== 'CANCELLED' &&
+        toEpochMs(event.startsAt as string) !== undefined,
+    )
+    .sort(
+      (a, b) =>
+        (toEpochMs(a.startsAt as string) ?? 0) -
+        (toEpochMs(b.startsAt as string) ?? 0),
+    );
+
 export const buildTimelineRows = (timeline: OperationsTimeline): TimelineRow[] => {
   const propertyById = new Map(timeline.properties.map((property) => [property.id, property]));
   const eventsByBookingId = new Map<string, OperationsTimelineEvent[]>();
