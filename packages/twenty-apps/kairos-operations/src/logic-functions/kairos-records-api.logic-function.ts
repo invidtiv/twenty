@@ -108,6 +108,14 @@ const handler = async (event: RoutePayload<RecordsRequest>) => {
         )),
       };
     }
+    case 'autoArmUpcomingWatches': {
+      const armInput = input as { hours?: number };
+      const hours = typeof armInput.hours === 'number' ? armInput.hours : 24 * 31;
+      return {
+        ok: true,
+        armed: await service.autoArmUpcomingWatches(hours),
+      };
+    }
     case 'upsertSourceRecord':
       return {
         ok: true,

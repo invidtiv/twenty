@@ -393,8 +393,17 @@ export class KairosOperationsService {
         { id: true, startsAt: true, status: true, kairosRemindersEnabled: true }
       );
       const metadata = objectValue(watch, "metadata");
+      const autoArmed = metadata?.autoArmed === true;
       const expectedStartsAt = typeof metadata?.expectedStartsAt === "string" ? metadata.expectedStartsAt : void 0;
-      if (!activationEvent || textValue(activationEvent, "status") !== "COMPLETED" || activationEvent.kairosRemindersEnabled === false || expectedStartsAt && Date.parse(textValue(activationEvent, "startsAt") ?? "") !== Date.parse(expectedStartsAt)) continue;
+      if (!activationEvent || activationEvent.kairosRemindersEnabled === false) continue;
+      const activationStatus = textValue(activationEvent, "status");
+      // Auto-armed watches (created by autoArmUpcomingWatches at ingest) have a
+      // still-due activation event (SCHEDULED); they are active for the whole
+      // booking window so the guest's WhatsApp flows into their per-guest topic
+      // without a manual welcome confirmation. Manual confirmWelcomeSent watches
+      // keep the strict requirement that the activation event be COMPLETED.
+      if (!autoArmed && activationStatus !== "COMPLETED") continue;
+      if (expectedStartsAt && Date.parse(textValue(activationEvent, "startsAt") ?? "") !== Date.parse(expectedStartsAt)) continue;
       const booking = await this.getBooking(requiredText(textValue(watch, "bookingId") ?? "", "bookingId"));
       if (textValue(booking, "status") === "CANCELLED") continue;
       const preferred = await this.getPreferredContact(booking.id);
@@ -417,6 +426,72 @@ export class KairosOperationsService {
       });
     }
     return active;
+  }
+  async autoArmUpcomingWatches(hours) {
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 31) {
+      throw new Error("hours must be between 0 and 744");
+    }
+    const events = await this.getUpcomingEvents(hours);
+    const armed = [];
+    const handledBookings = /* @__PURE__ */ new Set();
+    for (const event of events) {
+      const eventType = textValue(event, "eventType");
+      if (eventType !== "GUEST_CONTACT_DEADLINE" && eventType !== "CHECK_IN") continue;
+      if (event.kairosRemindersEnabled === false) continue;
+      const bookingId = textValue(event, "bookingId");
+      if (!bookingId || handledBookings.has(bookingId)) continue;
+      handledBookings.add(bookingId);
+      const booking = await this.getBooking(bookingId).catch(() => null);
+      if (!booking || textValue(booking, "status") === "CANCELLED") continue;
+      const checkoutAt = textValue(booking, "checkoutAt");
+      if (!checkoutAt) continue;
+      const preferred = await this.getPreferredContact(bookingId);
+      if (!preferred || !["PHONE", "WHATSAPP"].includes(preferred.contactType)) continue;
+      const normalizedPhone = normalizeInternationalPhone(preferred.contactValue);
+      if (!normalizedPhone) continue;
+      const [existing] = await this.repository.findMany(
+        "whatsappContactWatches",
+        { filter: { bookingId: { eq: bookingId } }, first: 1 },
+        whatsappWatchSelection
+      );
+      if (existing && textValue(existing, "status") === "ACTIVE") continue;
+      const [property] = textValue(booking, "propertyId")
+        ? await this.repository.findMany(
+            "properties",
+            { filter: { id: { eq: textValue(booking, "propertyId") } }, first: 1 },
+            { id: true, name: true }
+          )
+        : [];
+      const propertyName = textValue(property, "name") ?? "";
+      const guestName = textValue(booking, "name") ?? "";
+      const watch = await this.repository.upsert(
+        "whatsappContactWatches",
+        {
+          watchKey: `AUTO_ARM:${bookingId}`,
+          bookingId,
+          serviceEventId: event.id,
+          contactMethodId: preferred.id,
+          normalizedPhone,
+          activatedAt: this.now().toISOString(),
+          activationWatermarkMessageId: 0,
+          monitorUntil: checkoutAt,
+          status: "ACTIVE",
+          guestName,
+          propertyName,
+          checkinAt: textValue(booking, "checkinAt"),
+          checkoutAt,
+          metadata: {
+            autoArmed: true,
+            contactSource: preferred.source,
+            contactConfidence: preferred.confidence,
+            expectedStartsAt: textValue(event, "startsAt")
+          }
+        },
+        whatsappWatchSelection
+      );
+      armed.push({ bookingId, watch: textValue(watch, "id") ?? textValue(existing, "id"), guestName, propertyName, normalizedPhone, monitorUntil: checkoutAt });
+    }
+    return armed;
   }
   async upsertSourceRecord(input) {
     const sourceType = normalizeOption(input.sourceType);
