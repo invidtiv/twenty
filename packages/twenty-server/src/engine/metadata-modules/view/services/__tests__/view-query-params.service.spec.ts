@@ -345,5 +345,87 @@ describe('ViewQueryParamsService', () => {
         and: [{ company: { name: { ilike: '%Acme%' } } }],
       });
     });
+
+    it('should stringify jsonb array values before resolving select filters', async () => {
+      const relationFieldId = 'relation-field-id';
+      const targetFieldId = 'target-field-id';
+      const mockFilterGroupId = 'filter-group-id';
+
+      const flatFieldMetadataMapsWithRelation = {
+        byUniversalIdentifier: {
+          'relation-universal-id': {
+            id: relationFieldId,
+            name: 'messageChannelMessageAssociations',
+            type: FieldMetadataType.RELATION,
+            label: 'Message Channel Message Associations',
+            options: null,
+            universalIdentifier: 'relation-universal-id',
+          },
+          'target-universal-id': {
+            id: targetFieldId,
+            name: 'direction',
+            type: FieldMetadataType.SELECT,
+            label: 'Direction',
+            options: null,
+            universalIdentifier: 'target-universal-id',
+          },
+        },
+        universalIdentifierById: {
+          [relationFieldId]: 'relation-universal-id',
+          [targetFieldId]: 'target-universal-id',
+        },
+        universalIdentifiersByApplicationId: {},
+      };
+
+      const mockView = {
+        id: mockViewId,
+        name: 'Received',
+        objectMetadataId: mockObjectMetadataId,
+        type: ViewType.TABLE,
+        visibility: ViewVisibility.WORKSPACE,
+        viewFilters: [
+          {
+            id: 'filter-id',
+            fieldMetadataId: relationFieldId,
+            operand: ViewFilterOperand.IS,
+            value: ['INCOMING'],
+            viewFilterGroupId: mockFilterGroupId,
+            subFieldName: null,
+            relationTargetFieldMetadataId: targetFieldId,
+          },
+        ],
+        viewFilterGroups: [
+          {
+            id: mockFilterGroupId,
+            parentViewFilterGroupId: null,
+            logicalOperator: ViewFilterGroupLogicalOperator.AND,
+          },
+        ],
+        viewSorts: [],
+      };
+
+      viewService.findByIdWithRelations.mockResolvedValue(mockView as any);
+      flatEntityMapsCacheService.getOrRecomputeManyOrAllFlatEntityMaps.mockResolvedValue(
+        {
+          flatObjectMetadataMaps: mockFlatObjectMetadataMaps,
+          flatFieldMetadataMaps: flatFieldMetadataMapsWithRelation,
+        } as any,
+      );
+
+      const result = await viewQueryParamsService.resolveViewToQueryParams(
+        mockViewId,
+        mockWorkspaceId,
+      );
+
+      expect(result.filter).toEqual({
+        and: [
+          {
+            messageChannelMessageAssociations: {
+              direction: { in: ['INCOMING'] },
+            },
+          },
+        ],
+      });
+    });
   });
 });

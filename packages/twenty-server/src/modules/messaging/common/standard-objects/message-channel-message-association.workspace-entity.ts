@@ -5,20 +5,30 @@ import { type FieldTypeAndNameMetadata } from 'src/engine/workspace-manager/util
 import { type EntityRelation } from 'src/engine/workspace-manager/workspace-migration/types/entity-relation.interface';
 import { type MessageDirection } from 'src/modules/messaging/common/enums/message-direction.enum';
 import { type MessageChannelMessageAssociationMessageFolderWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message-channel-message-association-message-folder.workspace-entity';
+import { type MessageThreadWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message-thread.workspace-entity';
 import { type MessageWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message.workspace-entity';
 
 const MESSAGE_EXTERNAL_ID_FIELD_NAME = 'messageExternalId';
+const SENDER_FIELD_NAME = 'sender';
 
 export const SEARCH_FIELDS_FOR_MESSAGE_CHANNEL_MESSAGE_ASSOCIATION: FieldTypeAndNameMetadata[] =
-  [{ name: MESSAGE_EXTERNAL_ID_FIELD_NAME, type: FieldMetadataType.TEXT }];
+  [
+    { name: MESSAGE_EXTERNAL_ID_FIELD_NAME, type: FieldMetadataType.TEXT },
+    { name: SENDER_FIELD_NAME, type: FieldMetadataType.TEXT },
+  ];
 
 export class MessageChannelMessageAssociationWorkspaceEntity extends BaseWorkspaceEntity {
   messageExternalId: string | null;
   messageThreadExternalId: string | null;
   direction: MessageDirection;
+  sender: string | null;
+  isSpam: boolean;
+  isImportant: boolean;
   messageChannelId: string;
   message: EntityRelation<MessageWorkspaceEntity> | null;
   messageId: string;
+  messageThread: EntityRelation<MessageThreadWorkspaceEntity> | null;
+  messageThreadId: string | null;
   messageFolders: EntityRelation<
     MessageChannelMessageAssociationMessageFolderWorkspaceEntity[]
   >;

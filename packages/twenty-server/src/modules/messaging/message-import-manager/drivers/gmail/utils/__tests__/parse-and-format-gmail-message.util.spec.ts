@@ -119,4 +119,25 @@ describe('parseAndFormatGmailMessage', () => {
 
     expect(result).toBeNull();
   });
+
+  it('should expose spam and important classification metadata from labels', () => {
+    const result = parseAndFormatGmailMessage(
+      buildMessage(
+        [
+          { name: 'From', value: 'sender@example.com' },
+          { name: 'To', value: 'alice@example.com' },
+          { name: 'Message-ID', value: '<abc@example.com>' },
+        ],
+        { labelIds: ['IMPORTANT', 'SPAM'] },
+      ),
+      connectedAccount,
+    );
+
+    expect(result?.classification).toEqual({
+      provider: 'gmail',
+      isSpam: true,
+      isImportant: true,
+      sourceLabelIds: ['IMPORTANT', 'SPAM'],
+    });
+  });
 });

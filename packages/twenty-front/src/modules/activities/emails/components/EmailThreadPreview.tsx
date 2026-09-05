@@ -1,9 +1,17 @@
 import { styled } from '@linaria/react';
 
 import { ActivityRow } from '@/activities/components/ActivityRow';
+import { EmailThreadClassificationControls } from '@/activities/emails/components/EmailThreadClassificationControls';
 import { EmailThreadNotShared } from '@/activities/emails/components/EmailThreadNotShared';
+import {
+  type EmailThreadClassificationKey,
+  type EmailThreadClassificationMetadata,
+  getEmailThreadClassificationState,
+  toggleEmailThreadClassificationState,
+} from '@/activities/emails/utils/emailThreadClassification';
+import { getCanonicalSenderEmailFromParticipant } from '@/activities/emails/utils/getCanonicalSenderEmailFromParticipant';
 import { useOpenRecordInSidePanel } from '@/side-panel/hooks/useOpenRecordInSidePanel';
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 
 import { CoreObjectNameSingular } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
@@ -72,24 +80,35 @@ const StyledReceivedAt = styled.div`
   padding: ${themeCssVariables.spacing[0]} ${themeCssVariables.spacing[1]};
 `;
 
+type TimelineThreadWithClassification = TimelineThread & {
+  classification?: EmailThreadClassificationMetadata | null;
+  lastMessageClassification?: EmailThreadClassificationMetadata | null;
+};
+
 type EmailThreadPreviewProps = {
-  thread: TimelineThread;
+  thread: TimelineThreadWithClassification;
 };
 
 export const EmailThreadPreview = ({ thread }: EmailThreadPreviewProps) => {
   const { theme } = useContext(ThemeContext);
   const { openRecordInSidePanel } = useOpenRecordInSidePanel();
+  const [classificationState, setClassificationState] = useState(() =>
+    getEmailThreadClassificationState(
+      thread.lastMessageClassification ?? thread.classification,
+    ),
+  );
 
   const visibility = thread.visibility;
+  const senderHandles = [
+    getCanonicalSenderEmailFromParticipant({
+      participant: thread.firstParticipant,
+    }),
+    ...(thread.lastTwoParticipants ?? []).map((participant) =>
+      getCanonicalSenderEmailFromParticipant({ participant }),
+    ),
+  ];
 
-  const senderNames =
-    thread.firstParticipant.displayName +
-    (thread?.lastTwoParticipants?.[0]?.displayName
-      ? `, ${thread.lastTwoParticipants?.[0]?.displayName}`
-      : '') +
-    (thread?.lastTwoParticipants?.[1]?.displayName
-      ? `, ${thread.lastTwoParticipants?.[1]?.displayName}`
-      : '');
+  const senderNames = senderHandles.join(', ');
 
   const [finalDisplayedName, finalAvatarUrl, isCountIcon] =
     thread.participantCount > 3
@@ -113,6 +132,18 @@ export const EmailThreadPreview = ({ thread }: EmailThreadPreviewProps) => {
   };
 
   const isDisabled = visibility !== MessageChannelVisibility.SHARE_EVERYTHING;
+
+  const handleToggleClassification = (
+    classificationKey: EmailThreadClassificationKey,
+  ) => {
+    setClassificationState((currentClassificationState) =>
+      toggleEmailThreadClassificationState(
+        currentClassificationState,
+        classificationKey,
+      ),
+    );
+  };
+
   return (
     <ActivityRow onClick={handleThreadClick} disabled={isDisabled}>
       <StyledHeading unread={!thread.read}>
@@ -175,6 +206,11 @@ export const EmailThreadPreview = ({ thread }: EmailThreadPreviewProps) => {
           </>
         )}
       </StyledSubjectAndBody>
+      <EmailThreadClassificationControls
+        classificationState={classificationState}
+        disabled={isDisabled}
+        onToggle={handleToggleClassification}
+      />
       <StyledReceivedAt>
         {formatToHumanReadableDate(thread.lastMessageReceivedAt)}
       </StyledReceivedAt>

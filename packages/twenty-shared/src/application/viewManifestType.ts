@@ -31,6 +31,7 @@ export type ViewFilterManifest = SyncableEntityOptions & {
   fieldMetadataUniversalIdentifier: string;
   operand: ViewFilterOperand;
   value: ViewManifestFilterValue;
+  relationTargetFieldMetadataUniversalIdentifier?: string;
   subFieldName?: string;
   viewFilterGroupUniversalIdentifier?: string;
   positionInViewFilterGroup?: number;

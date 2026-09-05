@@ -81,7 +81,8 @@ export class GraphqlQueryFilterFieldParser {
     if (
       isFilterKeyARelation &&
       isMorphOrRelationFlatFieldMetadata(fieldMetadata) &&
-      fieldMetadata.settings?.relationType === RelationType.MANY_TO_ONE
+      (fieldMetadata.settings?.relationType === RelationType.MANY_TO_ONE ||
+        fieldMetadata.settings?.relationType === RelationType.ONE_TO_MANY)
     ) {
       return this.parseRelationSubFilter(
         queryBuilder,

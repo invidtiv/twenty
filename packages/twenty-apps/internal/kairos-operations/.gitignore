@@ -1,0 +1,9 @@
+node_modules/
+.yarn/
+.twenty/
+coverage/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example

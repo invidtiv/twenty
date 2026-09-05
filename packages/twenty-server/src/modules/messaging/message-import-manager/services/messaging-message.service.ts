@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { isDefined } from 'twenty-shared/utils';
+import { MessageParticipantRole } from 'twenty-shared/types';
 import { In } from 'typeorm';
 import { v4 } from 'uuid';
 
@@ -25,7 +26,10 @@ type MessageAccumulator = {
     | 'text'
     | 'messageThreadId'
   >;
-  threadToCreate?: Pick<MessageThreadWorkspaceEntity, 'id' | 'subject'>;
+  threadToCreate?: Pick<MessageThreadWorkspaceEntity, 'id' | 'subject'> &
+    Partial<
+      Pick<MessageThreadWorkspaceEntity, 'messageFrom' | 'messageTo'>
+    >;
   messageChannelMessageAssociationToCreate?: Pick<
     MessageChannelMessageAssociationWorkspaceEntity,
     | 'id'
@@ -33,7 +37,15 @@ type MessageAccumulator = {
     | 'messageId'
     | 'messageExternalId'
     | 'messageThreadExternalId'
+    | 'messageThreadId'
     | 'direction'
+    | 'sender'
+    | 'isSpam'
+    | 'isImportant'
+  >;
+  messageChannelMessageAssociationToUpdate?: Pick<
+    MessageChannelMessageAssociationWorkspaceEntity,
+    'id' | 'sender' | 'isSpam' | 'isImportant'
   >;
 };
 @Injectable()
@@ -186,22 +198,36 @@ export class MessagingMessageService {
               messageId: newOrExistingMessageId,
               messageExternalId: message.externalId,
               messageThreadExternalId: message.messageThreadExternalId,
+              messageThreadId,
               direction: message.direction,
+              sender: this.getSenderFromMessage(message),
+              isSpam: message.classification?.isSpam ?? false,
+              isImportant: message.classification?.isImportant ?? false,
+            };
+          } else {
+            messageAccumulator.messageChannelMessageAssociationToUpdate = {
+              id: messageAccumulator.existingMessageChannelMessageAssociationInDB
+                .id,
+              sender: this.getSenderFromMessage(message),
+              isSpam: message.classification?.isSpam ?? false,
+              isImportant: message.classification?.isImportant ?? false,
             };
           }
 
           messageAccumulatorMap.set(message.externalId, messageAccumulator);
         }
 
-        const messageThreadsToCreate = Array.from(
-          messageAccumulatorMap.values(),
-        )
-          .map((accumulator) => accumulator.threadToCreate)
-          .filter(isDefined);
-
         const threadSubjectUpdates = new Map<
           string,
           { subject: string; receivedAt: number }
+        >();
+        const threadFromToUpdates = new Map<
+          string,
+          {
+            messageFrom: string | null;
+            messageTo: string | null;
+            receivedAt: number;
+          }
         >();
 
         for (const message of messages) {
@@ -229,6 +255,49 @@ export class MessagingMessageService {
               });
             }
           }
+
+          const messageFrom = this.getMessageThreadFromFromMessage(message);
+          const messageTo = this.getMessageThreadToFromMessage(message);
+          const threadId = isDefined(messageAccumulator.existingThreadInDB)
+            ? messageAccumulator.existingThreadInDB.id
+            : messageAccumulator.threadToCreate?.id;
+          const existingFromTo = isDefined(threadId)
+            ? threadFromToUpdates.get(threadId)
+            : undefined;
+          const receivedAt = message.receivedAt?.getTime() ?? 0;
+          const hasFromTo =
+            isDefined(messageFrom) || isDefined(messageTo);
+
+          if (
+            isDefined(threadId) &&
+            hasFromTo &&
+            (!isDefined(existingFromTo) || receivedAt > existingFromTo.receivedAt)
+          ) {
+            threadFromToUpdates.set(threadId, {
+              messageFrom: isDefined(messageFrom)
+                ? messageFrom
+                : existingFromTo?.messageFrom ?? null,
+              messageTo: isDefined(messageTo)
+                ? messageTo
+                : existingFromTo?.messageTo ?? null,
+              receivedAt,
+            });
+          }
+        }
+
+        const messageThreadsToCreate = Array.from(
+          messageAccumulatorMap.values(),
+        )
+          .map((accumulator) => accumulator.threadToCreate)
+          .filter(isDefined);
+
+        for (const threadToCreate of messageThreadsToCreate) {
+          const threadFromTo = threadFromToUpdates.get(threadToCreate.id);
+
+          if (isDefined(threadFromTo)) {
+            threadToCreate.messageFrom = threadFromTo.messageFrom;
+            threadToCreate.messageTo = threadFromTo.messageTo;
+          }
         }
 
         if (messageThreadsToCreate.length > 0) {
@@ -242,6 +311,20 @@ export class MessagingMessageService {
           await messageThreadRepository.upsert(
             Array.from(threadSubjectUpdates.entries()).map(
               ([id, { subject }]) => ({ id, subject }),
+            ),
+            ['id'],
+            transactionManager,
+          );
+        }
+
+        if (threadFromToUpdates.size > 0) {
+          await messageThreadRepository.upsert(
+            Array.from(threadFromToUpdates.entries()).map(
+              ([id, { messageFrom, messageTo }]) => ({
+                id,
+                messageFrom,
+                messageTo,
+              }),
             ),
             ['id'],
             transactionManager,
@@ -267,6 +350,23 @@ export class MessagingMessageService {
           messageChannelMessageAssociationsToCreate,
           transactionManager,
         );
+
+        const messageChannelMessageAssociationsToUpdate = Array.from(
+          messageAccumulatorMap.values(),
+        )
+          .map(
+            (accumulator) =>
+              accumulator.messageChannelMessageAssociationToUpdate,
+          )
+          .filter(isDefined);
+
+        if (messageChannelMessageAssociationsToUpdate.length > 0) {
+          await messageChannelMessageAssociationRepository.upsert(
+            messageChannelMessageAssociationsToUpdate,
+            ['id'],
+            transactionManager,
+          );
+        }
 
         const messageExternalIdsAndIdsMap = new Map<string, string>();
         const messageExternalIdToMessageChannelMessageAssociationIdMap =
@@ -313,6 +413,48 @@ export class MessagingMessageService {
       authContext,
       { lite: true },
     );
+  }
+
+  private getSenderFromMessage(message: MessageWithParticipants): string | null {
+    const fromParticipant = message.participants.find(
+      (participant) => participant.role === MessageParticipantRole.FROM,
+    );
+
+    return fromParticipant?.handle ?? fromParticipant?.displayName ?? null;
+  }
+
+  private getMessageThreadFromFromMessage(message: MessageWithParticipants): string | null {
+    return this.getMessageThreadContactFromMessage(
+      message,
+      [MessageParticipantRole.FROM],
+    );
+  }
+
+  private getMessageThreadToFromMessage(message: MessageWithParticipants): string | null {
+    return this.getMessageThreadContactFromMessage(
+      message,
+      [MessageParticipantRole.TO],
+    );
+  }
+
+  private getMessageThreadContactFromMessage(
+    message: MessageWithParticipants,
+    roles: MessageParticipantRole[],
+  ): string | null {
+    const values = message.participants
+      .filter((participant) => roles.includes(participant.role))
+      .map((participant) => participant.handle ?? participant.displayName)
+      .filter(isDefined)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+
+    if (values.length === 0) {
+      return null;
+    }
+
+    const uniqueValues = Array.from(new Set(values));
+
+    return uniqueValues.join(', ');
   }
 
   private async enrichMessageAccumulatorWithExistingMessages(

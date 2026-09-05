@@ -29,6 +29,7 @@ export const parseAndFormatGmailMessage = (
     attachments,
     deliveredTo,
     labelIds,
+    classification,
   } = parseGmailMessage(message);
 
   if (!isDefined(from) || !isDefined(headerMessageId) || !isDefined(threadId)) {
@@ -75,5 +76,6 @@ export const parseAndFormatGmailMessage = (
     attachments,
     messageFolderExternalIds: labelIds,
     labelIds,
+    classification,
   };
 };

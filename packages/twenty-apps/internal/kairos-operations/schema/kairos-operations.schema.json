@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Kairos Operations Twenty schema summary",
+  "schemaVersion": "1.0.0",
+  "compatibleTwentyVersion": "2.29.0",
+  "workspaceName": "Kairos Operations",
+  "canonicalSystem": "Twenty CRM",
+  "defaultTimezone": "Europe/Lisbon",
+  "standardObjectExtensions": {
+    "person": {
+      "upsertKey": "globalContactId",
+      "fields": {
+        "globalContactId": "UUID UNIQUE NULLABLE",
+        "personType": "MULTI_SELECT personType",
+        "preferredLanguage": "TEXT NULLABLE",
+        "preferredContactMethod": "SELECT preferredContactMethod",
+        "contactNotes": "TEXT NULLABLE",
+        "lastVerifiedAt": "DATE_TIME NULLABLE"
+      },
+      "relations": {
+        "guestBookings": "ONE_TO_MANY booking.guest",
+        "bookingContactMethods": "ONE_TO_MANY bookingContactMethod.person",
+        "communications": "ONE_TO_MANY communication.person"
+      }
+    },
+    "task": {
+      "relations": {
+        "booking": "MANY_TO_ONE booking.tasks"
+      }
+    }
+  },
+  "customObjects": {
+    "property": {
+      "upsertKey": "externalPropertyId",
+      "fields": {
+        "name": "TEXT",
+        "externalPropertyId": "TEXT UNIQUE",
+        "propertyAddress": "TEXT NULLABLE",
+        "mapUrl": "LINKS NULLABLE",
+        "defaultCheckinNotes": "TEXT NULLABLE",
+        "accessNotes": "TEXT NULLABLE",
+        "accessSecretReference": "TEXT NULLABLE",
+        "active": "BOOLEAN",
+        "timezone": "TEXT",
+        "metadata": "RAW_JSON NULLABLE"
+      },
+      "relations": {
+        "bookings": "ONE_TO_MANY booking.property"
+      }
+    },
+    "booking": {
+      "upsertKey": "sourceKey",
+      "derivedKeys": {
+        "sourceKey": "SOURCE:externalBookingId",
+        "bookingId": "stable opaque UUID derived from sourceKey"
+      },
+      "fields": {
+        "name": "TEXT",
+        "bookingId": "UUID UNIQUE",
+        "source": "SELECT source",
+        "externalBookingId": "TEXT",
+        "sourceKey": "TEXT UNIQUE",
+        "sourceUrl": "LINKS NULLABLE",
+        "sourceLastSeenAt": "DATE_TIME NULLABLE",
+        "checkinAt": "DATE_TIME NULLABLE",
+        "checkoutAt": "DATE_TIME NULLABLE",
+        "arrivalWindowStart": "DATE_TIME NULLABLE",
+        "arrivalWindowEnd": "DATE_TIME NULLABLE",
+        "timezone": "TEXT",
+        "status": "SELECT bookingStatus",
+        "readinessStatus": "SELECT readinessStatus",
+        "riskLevel": "SELECT riskLevel",
+        "needsHumanReview": "BOOLEAN",
+        "missingInformation": "TEXT NULLABLE",
+        "lastReviewedAt": "DATE_TIME NULLABLE",
+        "aiSummary": "TEXT NULLABLE",
+        "internalNotes": "TEXT NULLABLE",
+        "specialInstructions": "TEXT NULLABLE",
+        "rawMetadata": "RAW_JSON NULLABLE"
+      },
+      "relations": {
+        "guest": "MANY_TO_ONE person.guestBookings",
+        "property": "MANY_TO_ONE property.bookings",
+        "contactMethods": "ONE_TO_MANY bookingContactMethod.booking",
+        "preferredContactMethod": "MANY_TO_ONE bookingContactMethod.preferredForBookings",
+        "serviceEvents": "ONE_TO_MANY serviceEvent.booking",
+        "communications": "ONE_TO_MANY communication.booking",
+        "sourceRecords": "ONE_TO_MANY sourceRecord.booking",
+        "tasks": "ONE_TO_MANY task.booking"
+      }
+    },
+    "bookingContactMethod": {
+      "upsertKey": "sourceContactKey",
+      "derivedKeys": {
+        "sourceContactKey": "bookingId:SOURCE:TYPE:sourceSlot"
+      },
+      "fields": {
+        "name": "TEXT",
+        "sourceContactKey": "TEXT UNIQUE",
+        "contactType": "SELECT contactType",
+        "contactValue": "TEXT",
+        "source": "SELECT contactSource",
+        "priority": "NUMBER",
+        "isPreferred": "BOOLEAN",
+        "preferenceMode": "SELECT preferenceMode",
+        "confidence": "SELECT confidence",
+        "lastVerifiedAt": "DATE_TIME NULLABLE",
+        "validFrom": "DATE_TIME NULLABLE",
+        "validUntil": "DATE_TIME NULLABLE",
+        "notes": "TEXT NULLABLE"
+      },
+      "relations": {
+        "booking": "MANY_TO_ONE booking.contactMethods",
+        "person": "MANY_TO_ONE person.bookingContactMethods NULLABLE",
+        "sourceRecord": "MANY_TO_ONE sourceRecord.contactMethods NULLABLE",
+        "preferredForBookings": "ONE_TO_MANY booking.preferredContactMethod"
+      }
+    },
+    "serviceEvent": {
+      "upsertKey": "sourceEventKey",
+      "derivedKeys": {
+        "sourceEventKey": "bookingId:SOURCE:sourceSlot"
+      },
+      "fields": {
+        "title": "TEXT",
+        "sourceEventKey": "TEXT UNIQUE",
+        "eventType": "SELECT eventType",
+        "startsAt": "DATE_TIME",
+        "endsAt": "DATE_TIME NULLABLE",
+        "status": "SELECT eventStatus",
+        "location": "TEXT NULLABLE",
+        "notes": "TEXT NULLABLE",
+        "source": "SELECT source",
+        "externalEventId": "TEXT NULLABLE",
+        "kairosRemindersEnabled": "BOOLEAN",
+        "externalCalendarProvider": "TEXT NULLABLE",
+        "externalCalendarId": "TEXT NULLABLE",
+        "externalCalendarEventId": "TEXT NULLABLE",
+        "lastCalendarSyncAt": "DATE_TIME NULLABLE",
+        "calendarSyncStatus": "SELECT calendarSyncStatus"
+      },
+      "relations": {
+        "booking": "MANY_TO_ONE booking.serviceEvents"
+      }
+    },
+    "communication": {
+      "upsertKey": "communicationKey when externalId is provided",
+      "derivedKeys": {
+        "communicationKey": "CHANNEL:externalId or random UUID"
+      },
+      "fields": {
+        "summary": "TEXT",
+        "communicationKey": "TEXT UNIQUE NULLABLE",
+        "direction": "SELECT communicationDirection",
+        "channel": "SELECT communicationChannel",
+        "occurredAt": "DATE_TIME",
+        "actionRequired": "BOOLEAN",
+        "processedByKairos": "BOOLEAN",
+        "confidence": "SELECT confidence",
+        "metadata": "RAW_JSON NULLABLE"
+      },
+      "relations": {
+        "booking": "MANY_TO_ONE booking.communications",
+        "person": "MANY_TO_ONE person.communications NULLABLE",
+        "rawSourceRecord": "MANY_TO_ONE sourceRecord.communications NULLABLE"
+      }
+    },
+    "sourceRecord": {
+      "upsertKey": "sourceKey",
+      "derivedKeys": {
+        "sourceKey": "SOURCE:externalId",
+        "contentHash": "SHA-256 of rawText or rawMetadata when omitted"
+      },
+      "fields": {
+        "name": "TEXT",
+        "sourceType": "SELECT source",
+        "externalId": "TEXT",
+        "sourceKey": "TEXT UNIQUE",
+        "receivedAt": "DATE_TIME",
+        "sourceTimestamp": "DATE_TIME NULLABLE",
+        "parseStatus": "SELECT parseStatus",
+        "contentHash": "TEXT NULLABLE",
+        "rawText": "TEXT NULLABLE",
+        "rawMetadata": "RAW_JSON NULLABLE",
+        "parserVersion": "TEXT NULLABLE",
+        "error": "TEXT NULLABLE"
+      },
+      "relations": {
+        "booking": "MANY_TO_ONE booking.sourceRecords NULLABLE",
+        "contactMethods": "ONE_TO_MANY bookingContactMethod.sourceRecord",
+        "communications": "ONE_TO_MANY communication.rawSourceRecord"
+      }
+    }
+  },
+  "enums": {
+    "personType": ["GUEST", "COORDINATOR", "COLLEAGUE", "OWNER", "OPERATOR", "OTHER"],
+    "preferredContactMethod": ["WHATSAPP", "PHONE", "EMAIL", "UNKNOWN"],
+    "source": ["WHATSAPP", "TALKGUEST", "EMAIL", "MANUAL", "KAIROS", "FUTURE_API"],
+    "contactSource": ["WHATSAPP", "TALKGUEST", "MANUAL", "EMAIL", "OTHER"],
+    "bookingStatus": ["NEW", "CONFIRMED", "PREPARING", "WAITING_FOR_GUEST", "READY", "IN_PROGRESS", "COMPLETED", "CANCELLED", "PROBLEM"],
+    "readinessStatus": ["UNKNOWN", "MISSING_CONTACT", "MISSING_LOCATION", "MISSING_ARRIVAL_DETAILS", "READY", "NEEDS_REVIEW"],
+    "riskLevel": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+    "contactType": ["WHATSAPP", "PHONE", "EMAIL", "OTHER"],
+    "preferenceMode": ["POLICY", "MANUAL"],
+    "confidence": ["CONFIRMED", "LIKELY", "UNVERIFIED"],
+    "eventType": ["GUEST_CONTACT_DEADLINE", "DAY_BEFORE_PREPARATION", "CHECK_IN", "KEY_HANDOVER", "FOLLOW_UP", "CHECK_OUT", "CUSTOM"],
+    "eventStatus": ["SCHEDULED", "READY", "IN_PROGRESS", "COMPLETED", "CANCELLED", "PROBLEM"],
+    "calendarSyncStatus": ["NOT_CONFIGURED", "PENDING", "SYNCED", "ERROR"],
+    "communicationDirection": ["INBOUND", "OUTBOUND"],
+    "communicationChannel": ["WHATSAPP", "PHONE", "EMAIL", "VOICE_CALL", "OTHER"],
+    "parseStatus": ["RECEIVED", "PARSED", "RECONCILED", "NEEDS_REVIEW", "ERROR"]
+  },
+  "views": [
+    "Tomorrow's Check-ins",
+    "Today",
+    "Operations Calendar",
+    "Needs Information",
+    "Ready",
+    "Problems / Human Review",
+    "Properties",
+    "Booking Contact Methods",
+    "Communications",
+    "Source Records"
+  ],
+  "logicFunctions": {
+    "kairos-records-api": {
+      "trigger": "POST /s/kairos/records",
+      "authenticationRequired": true
+    },
+    "kairos-query-api": {
+      "trigger": "POST /s/kairos/query",
+      "authenticationRequired": true
+    },
+    "on-booking-changed": {
+      "trigger": "booking.*",
+      "idempotent": true
+    },
+    "on-source-record-changed": {
+      "trigger": "sourceRecord.*",
+      "idempotent": true
+    }
+  },
+  "roles": {
+    "Kairos Operations function role": {
+      "assignable": "logic functions only",
+      "deleteAllowed": false,
+      "settingsAllowed": false
+    },
+    "Kairos Operations API": {
+      "assignable": "API keys only",
+      "deleteAllowed": false,
+      "settingsAllowed": false
+    }
+  }
+}

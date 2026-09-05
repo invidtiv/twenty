@@ -55,3 +55,10 @@ TRANSLATION_QA_REPORT.md
 .playwright-mcp/
 .playwright-cli/
 output/playwright/
+# Kairos/personal scratch & secrets — NEVER commit
+/backups/
+/qui133-*.mjs
+/inspect-*.mjs
+/register-*.mjs
+/recreate_*.py
+/repomix-output.xml

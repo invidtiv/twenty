@@ -1,0 +1,162 @@
+import {
+  FieldType,
+  OnDeleteAction,
+  RelationType,
+  STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS,
+  defineObject,
+} from 'twenty-sdk/define';
+
+import {
+  BOOKING,
+  COMMUNICATION,
+  PERSON_FIELDS,
+  SOURCE_RECORD,
+} from 'src/constants/identifiers';
+
+export default defineObject({
+  universalIdentifier: COMMUNICATION.object,
+  nameSingular: 'communication',
+  namePlural: 'communications',
+  labelSingular: 'Communication',
+  labelPlural: 'Communications',
+  description: 'Durable operational communications and summaries.',
+  icon: 'IconMessages',
+  isSearchable: true,
+  labelIdentifierFieldMetadataUniversalIdentifier: COMMUNICATION.fields.summary,
+  fields: [
+    {
+      universalIdentifier: COMMUNICATION.fields.summary,
+      type: FieldType.TEXT,
+      name: 'summary',
+      label: 'Summary',
+      icon: 'IconMessage',
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.communicationKey,
+      type: FieldType.TEXT,
+      name: 'communicationKey',
+      label: 'Communication key',
+      description: 'Optional stable source key for idempotent creation.',
+      icon: 'IconKey',
+      isNullable: true,
+      isUnique: true,
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.booking,
+      type: FieldType.RELATION,
+      name: 'booking',
+      label: 'Booking',
+      icon: 'IconCalendarCheck',
+      relationTargetObjectMetadataUniversalIdentifier: BOOKING.object,
+      relationTargetFieldMetadataUniversalIdentifier:
+        BOOKING.fields.communications,
+      universalSettings: {
+        relationType: RelationType.MANY_TO_ONE,
+        onDelete: OnDeleteAction.CASCADE,
+        joinColumnName: 'bookingId',
+      },
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.person,
+      type: FieldType.RELATION,
+      name: 'person',
+      label: 'Person',
+      icon: 'IconUser',
+      isNullable: true,
+      relationTargetObjectMetadataUniversalIdentifier:
+        STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.person.universalIdentifier,
+      relationTargetFieldMetadataUniversalIdentifier:
+        PERSON_FIELDS.communications,
+      universalSettings: {
+        relationType: RelationType.MANY_TO_ONE,
+        onDelete: OnDeleteAction.SET_NULL,
+        joinColumnName: 'personId',
+      },
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.direction,
+      type: FieldType.SELECT,
+      name: 'direction',
+      label: 'Direction',
+      icon: 'IconArrowsLeftRight',
+      options: [
+        { value: 'INBOUND', label: 'Inbound', position: 0, color: 'blue' },
+        { value: 'OUTBOUND', label: 'Outbound', position: 1, color: 'green' },
+      ],
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.channel,
+      type: FieldType.SELECT,
+      name: 'channel',
+      label: 'Channel',
+      icon: 'IconMessageCircle',
+      options: [
+        { value: 'WHATSAPP', label: 'WhatsApp', position: 0, color: 'green' },
+        { value: 'PHONE', label: 'Phone', position: 1, color: 'blue' },
+        { value: 'EMAIL', label: 'Email', position: 2, color: 'orange' },
+        { value: 'VOICE_CALL', label: 'Voice call', position: 3, color: 'purple' },
+        { value: 'OTHER', label: 'Other', position: 4, color: 'gray' },
+      ],
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.occurredAt,
+      type: FieldType.DATE_TIME,
+      name: 'occurredAt',
+      label: 'Occurred at',
+      icon: 'IconClock',
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.rawSourceRecord,
+      type: FieldType.RELATION,
+      name: 'rawSourceRecord',
+      label: 'Raw source record',
+      icon: 'IconDatabase',
+      isNullable: true,
+      relationTargetObjectMetadataUniversalIdentifier: SOURCE_RECORD.object,
+      relationTargetFieldMetadataUniversalIdentifier:
+        SOURCE_RECORD.fields.communications,
+      universalSettings: {
+        relationType: RelationType.MANY_TO_ONE,
+        onDelete: OnDeleteAction.SET_NULL,
+        joinColumnName: 'rawSourceRecordId',
+      },
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.actionRequired,
+      type: FieldType.BOOLEAN,
+      name: 'actionRequired',
+      label: 'Action required',
+      icon: 'IconAlertCircle',
+      defaultValue: false,
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.processedByKairos,
+      type: FieldType.BOOLEAN,
+      name: 'processedByKairos',
+      label: 'Processed by Kairos',
+      icon: 'IconRobot',
+      defaultValue: false,
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.confidence,
+      type: FieldType.SELECT,
+      name: 'confidence',
+      label: 'Confidence',
+      icon: 'IconShieldCheck',
+      defaultValue: "'UNVERIFIED'",
+      options: [
+        { value: 'CONFIRMED', label: 'Confirmed', position: 0, color: 'green' },
+        { value: 'LIKELY', label: 'Likely', position: 1, color: 'yellow' },
+        { value: 'UNVERIFIED', label: 'Unverified', position: 2, color: 'gray' },
+      ],
+    },
+    {
+      universalIdentifier: COMMUNICATION.fields.metadata,
+      type: FieldType.RAW_JSON,
+      name: 'metadata',
+      label: 'Metadata',
+      icon: 'IconJson',
+      isNullable: true,
+    },
+  ],
+});

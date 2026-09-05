@@ -6,12 +6,18 @@ import { type EntityRelation } from 'src/engine/workspace-manager/workspace-migr
 import { type MessageWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message.workspace-entity';
 
 const SUBJECT_FIELD_NAME = 'subject';
+const MESSAGE_FROM_FIELD_NAME = 'messageFrom';
+const MESSAGE_TO_FIELD_NAME = 'messageTo';
 
 export const SEARCH_FIELDS_FOR_MESSAGE_THREAD: FieldTypeAndNameMetadata[] = [
   { name: SUBJECT_FIELD_NAME, type: FieldMetadataType.TEXT },
+  { name: MESSAGE_FROM_FIELD_NAME, type: FieldMetadataType.TEXT },
+  { name: MESSAGE_TO_FIELD_NAME, type: FieldMetadataType.TEXT },
 ];
 
 export class MessageThreadWorkspaceEntity extends BaseWorkspaceEntity {
   subject: string | null;
+  messageFrom: string | null;
+  messageTo: string | null;
   messages: EntityRelation<MessageWorkspaceEntity[]>;
 }

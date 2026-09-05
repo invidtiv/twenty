@@ -1113,6 +1113,15 @@ export class ConfigVariables {
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.SERVER_CONFIG,
+    description: 'Host for the node server',
+    type: ConfigVariableType.STRING,
+    isEnvOnly: true,
+  })
+  @IsOptional()
+  NODE_HOST = '0.0.0.0';
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.SERVER_CONFIG,
     description: 'Base URL for the server',
     type: ConfigVariableType.STRING,
     isEnvOnly: true,

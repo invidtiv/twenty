@@ -795,6 +795,15 @@ export const STANDARD_OBJECTS = {
       direction: {
         universalIdentifier: '75c9b0f7-9e76-44d4-a2f9-47051e61eec7',
       },
+      sender: {
+        universalIdentifier: '6825e231-6a0c-42f4-8ed0-c4f79c3228e5',
+      },
+      isSpam: {
+        universalIdentifier: '1efcd080-9b2c-49ec-99a2-e5cc4b8129f1',
+      },
+      isImportant: {
+        universalIdentifier: 'cf56d741-65d9-42df-97a4-bc3bb388a9e2',
+      },
       createdBy: {
         universalIdentifier: 'ce7dc96f-dd33-4bce-9505-cbd381440cec',
       },
@@ -1115,6 +1124,12 @@ export const STANDARD_OBJECTS = {
       subject: {
         universalIdentifier: 'a8ddbf8c-1137-45d1-b89e-5ffbd83f67c8',
       },
+      messageFrom: {
+        universalIdentifier: '7c40f093-66ca-4791-a348-e2ae9a031f7b',
+      },
+      messageTo: {
+        universalIdentifier: 'd5329876-4d55-4fb0-8022-a0604a9f0d2e',
+      },
     },
     indexes: {},
     views: {
@@ -1123,6 +1138,9 @@ export const STANDARD_OBJECTS = {
         viewFields: {
           subject: {
             universalIdentifier: 'e5f0d32b-2b6a-47bc-b3bd-f32c96594ec1',
+          },
+          messageFrom: {
+            universalIdentifier: '77bdcd09-b7c6-476b-840b-d5dba1df74c7',
           },
           messages: {
             universalIdentifier: '20202020-df02-4d02-8d02-ae55a9ba2f01',

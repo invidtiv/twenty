@@ -2,6 +2,13 @@ import { type MessageDirection } from 'src/modules/messaging/common/enums/messag
 import { type MessageParticipantWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message-participant.workspace-entity';
 import { type MessageWorkspaceEntity } from 'src/modules/messaging/common/standard-objects/message.workspace-entity';
 
+export type MessageClassificationMetadata = {
+  provider: 'gmail' | 'imap' | 'microsoft' | 'smtp' | 'inboundEmail';
+  isSpam: boolean;
+  isImportant: boolean;
+  sourceLabelIds: string[];
+};
+
 export type Message = Omit<
   MessageWorkspaceEntity,
   | 'createdAt'
@@ -23,6 +30,7 @@ export type Message = Omit<
   messageFolderIds?: string[];
   messageFolderExternalIds?: string[];
   labelIds?: string[];
+  classification?: MessageClassificationMetadata;
 };
 
 export type MessageAttachment = {

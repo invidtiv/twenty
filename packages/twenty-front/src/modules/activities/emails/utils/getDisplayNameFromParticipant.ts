@@ -3,11 +3,17 @@ import { isNonEmptyString } from '@sniptt/guards';
 import { type EmailThreadMessageParticipant } from '@/activities/emails/types/EmailThreadMessageParticipant';
 import { isDefined } from 'twenty-shared/utils';
 
+export type EmailParticipantDisplayNameFields = Pick<
+  EmailThreadMessageParticipant,
+  'displayName' | 'handle'
+> &
+  Partial<Pick<EmailThreadMessageParticipant, 'person' | 'workspaceMember'>>;
+
 export const getDisplayNameFromParticipant = ({
   participant,
   shouldUseFullName = false,
 }: {
-  participant: EmailThreadMessageParticipant;
+  participant: EmailParticipantDisplayNameFields;
   shouldUseFullName?: boolean;
 }) => {
   if (isDefined(participant.person)) {

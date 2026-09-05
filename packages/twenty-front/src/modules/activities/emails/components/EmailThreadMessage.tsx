@@ -1,12 +1,18 @@
 import { styled } from '@linaria/react';
 import { useState } from 'react';
 
+import { EmailThreadClassificationControls } from '@/activities/emails/components/EmailThreadClassificationControls';
 import { EmailThreadMessageBody } from '@/activities/emails/components/EmailThreadMessageBody';
 import { EmailThreadMessageBodyPreview } from '@/activities/emails/components/EmailThreadMessageBodyPreview';
 import { EmailThreadMessageReceivers } from '@/activities/emails/components/EmailThreadMessageReceivers';
 import { EmailThreadMessageSender } from '@/activities/emails/components/EmailThreadMessageSender';
 import { EmailThreadNotShared } from '@/activities/emails/components/EmailThreadNotShared';
 import { type EmailThreadMessageParticipant } from '@/activities/emails/types/EmailThreadMessageParticipant';
+import {
+  type EmailThreadClassificationKey,
+  getEmailThreadClassificationState,
+  toggleEmailThreadClassificationState,
+} from '@/activities/emails/utils/emailThreadClassification';
 import { FIELD_RESTRICTED_ADDITIONAL_PERMISSIONS_REQUIRED } from 'twenty-shared/constants';
 import { MessageParticipantRole } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
@@ -36,6 +42,10 @@ const StyledThreadMessageBody = styled.div`
   padding: ${themeCssVariables.spacing[0]} ${themeCssVariables.spacing[2]};
 `;
 
+const StyledThreadMessageClassificationControls = styled.div`
+  margin-top: ${themeCssVariables.spacing[2]};
+`;
+
 type EmailThreadMessageProps = {
   body: string;
   sentAt: string;
@@ -54,6 +64,9 @@ export const EmailThreadMessage = ({
   hideBottomBorder = false,
 }: EmailThreadMessageProps) => {
   const [isOpen, setIsOpen] = useState(isExpanded);
+  const [classificationState, setClassificationState] = useState(() =>
+    getEmailThreadClassificationState(null),
+  );
 
   const receivers = participants.filter(
     (participant) => participant.role !== MessageParticipantRole.FROM,
@@ -66,6 +79,17 @@ export const EmailThreadMessage = ({
   const isRestricted =
     body === FIELD_RESTRICTED_ADDITIONAL_PERMISSIONS_REQUIRED;
 
+  const handleToggleClassification = (
+    classificationKey: EmailThreadClassificationKey,
+  ) => {
+    setClassificationState((currentClassificationState) =>
+      toggleEmailThreadClassificationState(
+        currentClassificationState,
+        classificationKey,
+      ),
+    );
+  };
+
   return (
     <StyledThreadMessage
       hideBottomBorder={hideBottomBorder}
@@ -75,6 +99,14 @@ export const EmailThreadMessage = ({
       <StyledThreadMessageHeader onClick={() => isOpen && setIsOpen(false)}>
         <EmailThreadMessageSender sender={sender} sentAt={sentAt} />
         {isOpen && <EmailThreadMessageReceivers receivers={receivers} />}
+        <StyledThreadMessageClassificationControls>
+          <EmailThreadClassificationControls
+            classificationState={classificationState}
+            disabled={isRestricted}
+            onToggle={handleToggleClassification}
+            showLabels
+          />
+        </StyledThreadMessageClassificationControls>
       </StyledThreadMessageHeader>
       <StyledThreadMessageBody>
         {isRestricted ? (

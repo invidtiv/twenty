@@ -394,6 +394,36 @@ describe('FilterArgProcessorService', () => {
       expect(result).toEqual({ target: { name: { eq: 'Airbnb' } } });
     });
 
+    it('should accept one-to-many relation traversal onto a scalar field on the target', () => {
+      const {
+        flatFieldMetadataMaps,
+        flatObjectMetadataMaps,
+        sourceObjectMetadata,
+      } = createRelationFixture();
+
+      const relationField =
+        flatFieldMetadataMaps.byUniversalIdentifier['relation-field-uid'];
+
+      if (!relationField) {
+        throw new Error('Relation fixture field not found');
+      }
+
+      relationField.settings = {
+        relationType: RelationType.ONE_TO_MANY,
+      };
+
+      const filter = { target: { name: { eq: 'Airbnb' } } };
+
+      const result = filterArgProcessorService.process({
+        filter,
+        flatObjectMetadata: sourceObjectMetadata,
+        flatObjectMetadataMaps,
+        flatFieldMetadataMaps,
+      });
+
+      expect(result).toEqual({ target: { name: { eq: 'Airbnb' } } });
+    });
+
     it('should accept a relation traversal onto a composite sub-field without tripping the depth cap', () => {
       // Composite sub-field navigation is not a relation hop, so it must
       // not count against MAX_RELATION_FILTER_DEPTH = 1.

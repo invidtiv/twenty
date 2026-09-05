@@ -1,0 +1,91 @@
+{
+  "description": "Synthetic Kairos Operations ingestion fixture. Date placeholders are resolved by scripts/verify-live.mjs.",
+  "person": {
+    "globalContactId": "5a6d8991-97e5-486a-a506-d16e922fe5e4",
+    "firstName": "Marta",
+    "lastName": "Sample",
+    "personType": ["guest"],
+    "preferredLanguage": "pt-PT",
+    "preferredContactMethod": "WhatsApp"
+  },
+  "property": {
+    "externalPropertyId": "sample-lisbon-001",
+    "name": "Alfama Sample Apartment",
+    "address": "Rua da Demo 1, Lisbon",
+    "mapUrl": "https://maps.example.test/alfama-sample",
+    "timezone": "Europe/Lisbon",
+    "active": true,
+    "accessSecretReference": "secret://kairos/sample-property-access"
+  },
+  "booking": {
+    "source": "TalkGuest",
+    "externalBookingId": "TG-KAIROS-LIVE-SAMPLE-001",
+    "name": "Marta Sample — Alfama",
+    "sourceUrl": "https://app.talkguest.com/sample/TG-KAIROS-LIVE-SAMPLE-001",
+    "checkinAt": "${TOMORROW_15_UTC}",
+    "checkoutAt": "${THREE_DAYS_10_UTC}",
+    "arrivalWindowStart": "${TOMORROW_15_UTC}",
+    "arrivalWindowEnd": "${TOMORROW_17_UTC}",
+    "timezone": "Europe/Lisbon",
+    "status": "Confirmed"
+  },
+  "talkGuestSource": {
+    "sourceType": "TalkGuest",
+    "externalId": "TG-KAIROS-LIVE-SAMPLE-001-v1",
+    "parseStatus": "Parsed",
+    "parserVersion": "fixture-1.0.0",
+    "rawMetadata": {
+      "fixture": true,
+      "contactSlot": "booking-primary"
+    }
+  },
+  "whatsAppSource": {
+    "sourceType": "WhatsApp",
+    "externalId": "WA-KAIROS-LIVE-SAMPLE-001",
+    "parseStatus": "Parsed",
+    "parserVersion": "fixture-1.0.0",
+    "rawMetadata": {
+      "fixture": true,
+      "contactSlot": "guest-operational"
+    }
+  },
+  "talkGuestContact": {
+    "source": "TalkGuest",
+    "sourceSlot": "booking-primary",
+    "contactType": "phone",
+    "contactValue": "+351210000001",
+    "confidence": "likely",
+    "priority": 200
+  },
+  "whatsAppContact": {
+    "source": "WhatsApp",
+    "sourceSlot": "guest-operational",
+    "contactType": "WhatsApp",
+    "contactValue": "+351910000002",
+    "confidence": "confirmed",
+    "priority": 100
+  },
+  "communication": {
+    "externalId": "WA-KAIROS-LIVE-SAMPLE-001-summary",
+    "direction": "inbound",
+    "channel": "WhatsApp",
+    "occurredAt": "${NOW}",
+    "summary": "Guest confirmed the booking-specific operational number.",
+    "actionRequired": false,
+    "processedByKairos": true,
+    "confidence": "confirmed",
+    "metadata": {
+      "fixture": true
+    }
+  },
+  "manualEvent": {
+    "source": "Manual",
+    "eventType": "Key handover",
+    "title": "Sample key handover",
+    "startsAt": "${TOMORROW_16_UTC}",
+    "endsAt": "${TOMORROW_16_30_UTC}",
+    "status": "Scheduled",
+    "externalEventId": "SAMPLE-HANDOVER-001",
+    "kairosRemindersEnabled": true
+  }
+}

@@ -1,0 +1,4556 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+apps/
+  config/
+    application.mdx
+    install-hooks.mdx
+    overview.mdx
+    public-assets.mdx
+    roles.mdx
+  data/
+    extending-objects.mdx
+    objects.mdx
+    overview.mdx
+    relations.mdx
+  getting-started/
+    concepts.mdx
+    local-server.mdx
+    project-structure.mdx
+    quick-start.mdx
+    scaffolding.mdx
+    troubleshooting.mdx
+  layout/
+    command-menu-items.mdx
+    front-components.mdx
+    navigation-menu-items.mdx
+    overview.mdx
+    page-layouts.mdx
+    views.mdx
+  logic/
+    connections.mdx
+    logic-functions.mdx
+    overview.mdx
+    skills-and-agents.mdx
+  operations/
+    cli.mdx
+    overview.mdx
+    publishing.mdx
+    testing.mdx
+capabilities/
+  apis.mdx
+  webhooks.mdx
+api.mdx
+extend.mdx
+oauth.mdx
+webhooks.mdx
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="apps/config/application.mdx">
+---
+title: Application Config
+description: Declare your app's identity, default role, variables, and marketplace metadata with defineApplication.
+icon: "rocket"
+---
+
+Every app must have exactly one `defineApplication` call. It declares:
+
+- **Identity** — universal identifier, display name, description.
+- **Permissions** — which role its logic functions and front components run under.
+- **Variables** *(optional)* — key–value pairs exposed to your code as environment variables.
+- **Pre-install / post-install hooks** *(optional)* — see [Logic Functions](/developers/extend/apps/logic/logic-functions).
+
+```ts src/application-config.ts
+import { defineApplication } from 'twenty-sdk/define';
+
+export default defineApplication({
+  universalIdentifier: '39783023-bcac-41e3-b0d2-ff1944d8465d',
+  displayName: 'My Twenty App',
+  description: 'My first Twenty app',
+  applicationVariables: {
+    DEFAULT_RECIPIENT_NAME: {
+      universalIdentifier: '19e94e59-d4fe-4251-8981-b96d0a9f74de',
+      description: 'Default recipient name for postcards',
+      value: 'Jane Doe',
+      isSecret: false,
+    },
+  },
+});
+```
+
+Notes:
+- `universalIdentifier` fields are deterministic IDs you own. Generate them once and keep them stable across syncs.
+- `applicationVariables` become environment variables for your functions and front components. In logic functions (server-side), they are available as `process.env.VARIABLE_NAME`. In front components, use `getApplicationVariable('VARIABLE_NAME')` from `twenty-sdk/front-component`. Variables marked with `isSecret: true` are only injected into logic functions. Front components receive only non-secret variables.
+- The default role is detected automatically from the role file marked with [`defineApplicationRole()`](/developers/extend/apps/config/roles) — you do not need to reference it from `defineApplication()`.
+- Pre-install and post-install functions are detected automatically during the manifest build — you do not need to reference them in `defineApplication()`.
+- Passing `defaultRoleUniversalIdentifier` explicitly is still supported for backward compatibility, but is deprecated in favor of `defineApplicationRole()`.
+
+## Default function role
+
+The role declared with [`defineApplicationRole()`](/developers/extend/apps/config/roles) controls what the app's logic functions and front components can access:
+
+- The runtime token injected as `TWENTY_APP_ACCESS_TOKEN` is derived from this role.
+- The typed API client is restricted to the permissions granted to that role.
+- Follow least-privilege: declare only the permissions your functions need.
+
+When you scaffold a new app, the CLI creates a starter role file at `src/roles/default-role.ts`. See [Roles & Permissions](/developers/extend/apps/config/roles) for the full reference.
+
+## Marketplace metadata
+
+If you plan to [publish your app](/developers/extend/apps/operations/publishing), these optional fields control how it appears in the marketplace:
+
+| Field | Description |
+|-------|-------------|
+| `author` | Author or company name |
+| `category` | App category for marketplace filtering |
+| `logoUrl` | Path to your app logo (e.g., `public/logo.png`) |
+| `screenshots` | Array of screenshot paths (e.g., `public/screenshot-1.png`) |
+| `aboutDescription` | Longer markdown description for the "About" tab. If omitted, the marketplace uses the package's `README.md` from npm |
+| `websiteUrl` | Link to your website |
+| `termsUrl` | Link to terms of service |
+| `emailSupport` | Support email address |
+| `issueReportUrl` | Link to issue tracker |
+</file>
+
+<file path="apps/config/install-hooks.mdx">
+---
+title: Install Hooks
+description: Run logic before or after the install — seed data, back up records, validate the upgrade.
+icon: "wrench"
+---
+
+Install hooks are special logic functions that run during the install or upgrade lifecycle. They share the same handler runtime as regular [logic functions](/developers/extend/apps/logic/logic-functions) and receive an `InstallPayload`, but they're declared with their own define functions — `definePostInstallLogicFunction()` and `definePreInstallLogicFunction()` — and live outside the normal trigger model (HTTP, cron, database events).
+
+Each app may define **at most one pre-install** and **at most one post-install** function. The manifest build will error if more than one of either is detected.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ install flow                                                │
+│                                                             │
+│   upload package → [pre-install] → metadata migration →     │
+│   generate SDK → [post-install]                             │
+│                                                             │
+│                  old schema visible    new schema visible   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+<AccordionGroup>
+<Accordion title="definePostInstallLogicFunction" description="Runs after the workspace metadata migration is applied">
+
+A post-install function runs automatically once your app has finished installing on a workspace. The server executes it **after** the app's metadata has been synchronized and the SDK client has been generated, so the workspace is fully ready to use and the new schema is in place. Typical use cases include seeding default data, creating initial records, configuring workspace settings, or provisioning resources on third-party services.
+
+```ts src/logic-functions/post-install.ts
+import { definePostInstallLogicFunction, type InstallPayload } from 'twenty-sdk/define';
+
+const handler = async (payload: InstallPayload): Promise<void> => {
+  console.log('Post install logic function executed successfully!', payload.previousVersion);
+};
+
+export default definePostInstallLogicFunction({
+  universalIdentifier: 'f7a2b9c1-3d4e-5678-abcd-ef9876543210',
+  name: 'post-install',
+  description: 'Runs after installation to set up the application.',
+  timeoutSeconds: 300,
+  shouldRunOnVersionUpgrade: false,
+  shouldRunSynchronously: false,
+  handler,
+});
+```
+
+You can also manually execute the post-install function at any time using the CLI:
+
+```bash filename="Terminal"
+yarn twenty dev:function:exec --postInstall
+```
+
+Key points:
+- Post-install functions use `definePostInstallLogicFunction()` — a specialized variant that omits trigger settings (`cronTriggerSettings`, `databaseEventTriggerSettings`, `httpRouteTriggerSettings`, `toolTriggerSettings`, `workflowActionTriggerSettings`).
+- The handler receives an `InstallPayload` with `{ previousVersion?: string; newVersion: string }` — `newVersion` is the version being installed, and `previousVersion` is the version that was previously installed (or `undefined` on a fresh install). Use these values to distinguish fresh installs from upgrades and to run version-specific migration logic.
+- **When the hook runs**: on fresh installs only, by default. Pass `shouldRunOnVersionUpgrade: true` if you also want it to run when the app is upgraded from a previous version. When omitted, the flag defaults to `false` and upgrades skip the hook.
+- **Execution model — async by default, sync opt-in**: the `shouldRunSynchronously` flag controls *how* post-install is executed.
+  - `shouldRunSynchronously: false` *(default)* — the hook is **enqueued on the message queue** with `retryLimit: 3` and runs asynchronously in a worker. The install response returns as soon as the job is enqueued, so a slow or failing handler does not block the caller. The worker will retry up to three times. **Use this for long-running jobs** — seeding large datasets, calling slow third-party APIs, provisioning external resources, anything that might exceed a reasonable HTTP response window.
+  - `shouldRunSynchronously: true` — the hook is executed **inline during the install flow** (same executor as pre-install). The install request blocks until the handler finishes, and if it throws, the install caller receives a `POST_INSTALL_ERROR`. No automatic retries. **Use this for fast, must-complete-before-response work** — for example, emitting a validation error to the user, or quick setup that the client will rely on immediately after the install call returns. Keep in mind the metadata migration has already been applied by the time post-install runs, so a sync-mode failure does **not** roll back the schema changes — it only surfaces the error.
+- Make sure your handler is idempotent. In async mode the queue may retry up to three times; in either mode the hook may run again on upgrades when `shouldRunOnVersionUpgrade: true`.
+- The environment variables `APPLICATION_ID`, `APP_ACCESS_TOKEN`, and `API_URL` are available inside the handler (same as any other logic function), so you can call the Twenty API with an application access token scoped to your app.
+- Only one post-install function is allowed per application. The manifest build will error if more than one is detected.
+- The function's `universalIdentifier`, `shouldRunOnVersionUpgrade`, and `shouldRunSynchronously` are automatically attached to the application manifest under the `postInstallLogicFunction` field during the build — you do not need to reference them in [`defineApplication()`](/developers/extend/apps/config/application).
+- The default timeout is set to 300 seconds (5 minutes) to allow for longer setup tasks like data seeding.
+- **Not executed in dev mode**: when an app is registered locally (via `yarn twenty dev`), the server skips the install flow entirely and syncs files directly through the CLI watcher — so post-install never runs in dev mode, regardless of `shouldRunSynchronously`. Use `yarn twenty dev:function:exec --postInstall` to trigger it manually against a running workspace.
+
+</Accordion>
+<Accordion title="definePreInstallLogicFunction" description="Runs before the workspace metadata migration is applied">
+
+A pre-install function runs automatically during installation, **before the workspace metadata migration is applied**. It shares the same payload shape as post-install (`InstallPayload`), but it is positioned earlier in the install flow so it can prepare state that the upcoming migration depends on — typical uses include backing up data, validating compatibility with the new schema, or archiving records that are about to be restructured or dropped.
+
+```ts src/logic-functions/pre-install.ts
+import { definePreInstallLogicFunction, type InstallPayload } from 'twenty-sdk/define';
+
+const handler = async (payload: InstallPayload): Promise<void> => {
+  console.log('Pre install logic function executed successfully!', payload.previousVersion);
+};
+
+export default definePreInstallLogicFunction({
+  universalIdentifier: 'a1b2c3d4-5678-90ab-cdef-1234567890ab',
+  name: 'pre-install',
+  description: 'Runs before installation to prepare the application.',
+  timeoutSeconds: 300,
+  shouldRunOnVersionUpgrade: true,
+  handler,
+});
+```
+
+You can also manually execute the pre-install function at any time using the CLI:
+
+```bash filename="Terminal"
+yarn twenty dev:function:exec --preInstall
+```
+
+Key points:
+- Pre-install functions use `definePreInstallLogicFunction()` — same specialized config as post-install, just attached to a different lifecycle slot.
+- Both pre- and post-install handlers receive the same `InstallPayload` type: `{ previousVersion?: string; newVersion: string }`. Import it once and reuse it for both hooks.
+- **When the hook runs**: positioned just before the workspace metadata migration (`synchronizeFromManifest`). Before executing, the server runs a purely additive "pared-down sync" that registers the **new** version's pre-install function in the workspace metadata — nothing else is touched — and then executes it. Because this sync is additive-only, the previous version's objects, fields, and data are still intact when your handler runs: you can safely read and back up pre-migration state.
+- **Execution model**: pre-install is executed **synchronously** and **blocks the install**. If the handler throws, the install is aborted before any schema changes are applied — the workspace stays on the previous version in a consistent state. This is intentional: pre-install is your last chance to refuse a risky upgrade.
+- As with post-install, only one pre-install function is allowed per application. It is attached to the application manifest under `preInstallLogicFunction` automatically during the build.
+- **Not executed in dev mode**: same as post-install — the install flow is skipped entirely for locally-registered apps, so pre-install never runs under `yarn twenty dev`. Use `yarn twenty dev:function:exec --preInstall` to trigger it manually.
+
+</Accordion>
+<Accordion title="Pre-install vs post-install: when to use which" description="Choosing the right install hook">
+
+Both hooks are part of the same install flow and receive the same `InstallPayload`. The difference is **when** they run relative to the workspace metadata migration, and that changes what data they can safely touch.
+
+Pre-install is always **synchronous** (it blocks the install and can abort it). Post-install is **asynchronous by default** — enqueued on a worker with automatic retries — but can opt into synchronous execution with `shouldRunSynchronously: true`. See the `definePostInstallLogicFunction` accordion above for when to use each mode.
+
+**Use `post-install` for anything that needs the new schema to exist.** This is the common case:
+
+- Seeding default data (creating initial records, default views, demo content) against newly-added objects and fields.
+- Registering webhooks with third-party services now that the app has its credentials.
+- Calling your own API to finish setup that depends on the synchronized metadata.
+- Idempotent "ensure this exists" logic that should reconcile state on every upgrade — combine with `shouldRunOnVersionUpgrade: true`.
+
+Example — seed a default `PostCard` record after install:
+
+```ts src/logic-functions/post-install.ts
+import { definePostInstallLogicFunction, type InstallPayload } from 'twenty-sdk/define';
+import { createClient } from './generated/client';
+
+const handler = async ({ previousVersion }: InstallPayload): Promise<void> => {
+  if (previousVersion) return; // fresh installs only
+
+  const client = createClient();
+  await client.postCard.create({
+    data: { title: 'Welcome to Postcard', content: 'Your first card!' },
+  });
+};
+
+export default definePostInstallLogicFunction({
+  universalIdentifier: 'f7a2b9c1-3d4e-5678-abcd-ef9876543210',
+  name: 'post-install',
+  description: 'Seeds a welcome post card after install.',
+  timeoutSeconds: 300,
+  shouldRunOnVersionUpgrade: false,
+  handler,
+});
+```
+
+**Use `pre-install` when a migration would otherwise destroy or corrupt existing data.** Because pre-install runs against the *previous* schema and its failure rolls back the upgrade, it is the right place for anything risky:
+
+- **Backing up data that is about to be dropped or restructured** — e.g. you are removing a field in v2 and need to copy its values into another field or export them to storage before the migration runs.
+- **Archiving records that a new constraint would invalidate** — e.g. a field is becoming `NOT NULL` and you need to delete or fix rows with null values first.
+- **Validating compatibility and refusing the upgrade if the current data cannot be migrated cleanly** — throw from the handler and the install aborts with no changes applied. This is safer than discovering the incompatibility mid-migration.
+- **Renaming or rekeying data** ahead of a schema change that would lose the association.
+
+Example — archive records before a destructive migration:
+
+```ts src/logic-functions/pre-install.ts
+import { definePreInstallLogicFunction, type InstallPayload } from 'twenty-sdk/define';
+import { createClient } from './generated/client';
+
+const handler = async ({ previousVersion, newVersion }: InstallPayload): Promise<void> => {
+  // Only the 1.x → 2.x upgrade drops the legacy `notes` field.
+  if (!previousVersion?.startsWith('1.') || !newVersion.startsWith('2.')) {
+    return;
+  }
+
+  const client = createClient();
+  const legacyRecords = await client.postCard.findMany({
+    where: { notes: { isNotNull: true } },
+  });
+
+  if (legacyRecords.length === 0) return;
+
+  // Copy legacy `notes` into the new `description` field before the migration
+  // drops the `notes` column. If this fails, the upgrade is aborted and the
+  // workspace stays on v1 with all data intact.
+  await Promise.all(
+    legacyRecords.map((record) =>
+      client.postCard.update({
+        where: { id: record.id },
+        data: { description: record.notes },
+      }),
+    ),
+  );
+};
+
+export default definePreInstallLogicFunction({
+  universalIdentifier: 'a1b2c3d4-5678-90ab-cdef-1234567890ab',
+  name: 'pre-install',
+  description: 'Backs up legacy notes into description before the v2 migration.',
+  timeoutSeconds: 300,
+  shouldRunOnVersionUpgrade: true,
+  handler,
+});
+```
+
+**Rule of thumb:**
+
+| You want to... | Use |
+|---|---|
+| Seed default data, configure the workspace, register external resources | `post-install` |
+| Run long-running seeding or third-party calls that shouldn't block the install response | `post-install` (default — `shouldRunSynchronously: false`, with worker retries) |
+| Run fast setup that the caller will rely on immediately after the install call returns | `post-install` with `shouldRunSynchronously: true` |
+| Read or back up data that the upcoming migration would lose | `pre-install` |
+| Reject an upgrade that would corrupt existing data | `pre-install` (throw from the handler) |
+| Run reconciliation on every upgrade | `post-install` with `shouldRunOnVersionUpgrade: true` |
+| Do one-off setup on the first install only | `post-install` with `shouldRunOnVersionUpgrade: false` (default) |
+
+<Note>
+If in doubt, default to **post-install**. Only reach for pre-install when the migration itself is destructive and you need to intercept the previous state before it is gone.
+</Note>
+
+</Accordion>
+</AccordionGroup>
+</file>
+
+<file path="apps/config/overview.mdx">
+---
+title: Overview
+description: Configure the app itself — its identity, default permissions, and what runs at install time.
+icon: "screwdriver-wrench"
+---
+
+A Twenty app's **config layer** is what describes the app *to the platform* — its identity, the permissions it holds, and the code that runs during install or upgrade. These declarations don't add new data shapes or runtime behavior; they tell Twenty *who the app is* and *how to set it up*.
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ Application — identity, default role, variables,       │
+│               marketplace metadata                     │
+│                                                        │
+│   ┌──────────────────────────────────────────────────┐ │
+│   │ Role — what the app's logic functions can read   │ │
+│   │ and write (referenced by Application)            │ │
+│   └──────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────┘
+                          │
+                          ▼  (at install / upgrade time)
+       ┌──────────────────────────────────┐
+       │ Pre-install hook                 │  before metadata migration
+       └──────────────────────────────────┘
+       ┌──────────────────────────────────┐
+       │ Post-install hook                │  after metadata migration
+       └──────────────────────────────────┘
+```
+
+## In this section
+
+<CardGroup cols={2}>
+  <Card title="Application Config" icon="rocket" href="/developers/extend/apps/config/application">
+    `defineApplication` — identity, default role, variables, marketplace metadata.
+  </Card>
+  <Card title="Roles & Permissions" icon="shield-halved" href="/developers/extend/apps/config/roles">
+    `defineRole` — declare what your app's logic functions can read and write.
+  </Card>
+  <Card title="Install Hooks" icon="wrench" href="/developers/extend/apps/config/install-hooks">
+    `definePreInstallLogicFunction` and `definePostInstallLogicFunction` — back up data, seed defaults, validate upgrades.
+  </Card>
+</CardGroup>
+
+## How the pieces relate
+
+- **Application** is the entry point. Every app has exactly one `defineApplication()` call, and it points at one **Role** as its default.
+- The **Role** controls what the app's logic functions and front components can read and write. Follow least-privilege: only grant the permissions your code actually needs.
+- **Install Hooks** run during install or upgrade — pre-install before the metadata migration (so it can refuse a risky upgrade), post-install after the migration (so it can seed default data against the new schema).
+
+<Note>
+Install hooks share the [logic function](/developers/extend/apps/logic/logic-functions) runtime — same handler signature, same environment variables, same typed API client — but they're declared with their own define functions and live outside the regular trigger model (HTTP, cron, database events).
+</Note>
+</file>
+
+<file path="apps/config/public-assets.mdx">
+---
+title: Public Assets
+description: Ship static files — images, icons, fonts — alongside your app via the public/ folder.
+icon: "folder-open"
+---
+
+The `public/` folder at the root of your app holds static files — images, icons, fonts, or any other assets your app needs at runtime. These files are automatically included in builds, synced during dev mode, and uploaded to the server.
+
+Files placed in `public/` are:
+
+- **Publicly accessible** — once synced to the server, assets are served at a public URL. No authentication is needed to access them.
+- **Available in front components** — use asset URLs to display images, icons, or any media inside your React components.
+- **Available in logic functions** — reference asset URLs in emails, API responses, or any server-side logic.
+- **Used for marketplace metadata** — the `logoUrl` and `screenshots` fields in `defineApplication()` reference files from this folder (e.g., `public/logo.png`). These are displayed in the marketplace when your app is published.
+- **Auto-synced in dev mode** — when you add, update, or delete a file in `public/`, it is synced to the server automatically. No restart needed.
+- **Included in builds** — `yarn twenty dev:build` bundles all public assets into the distribution output.
+
+## Accessing public assets with `getPublicAssetUrl`
+
+Use the `getPublicAssetUrl` helper from `twenty-sdk` to get the full URL of a file in your `public/` directory. It works in both **logic functions** and **front components**.
+
+**In a logic function:**
+
+```ts src/logic-functions/send-invoice.ts
+import { defineLogicFunction } from 'twenty-sdk/define';
+import { getPublicAssetUrl } from 'twenty-sdk/utils';
+
+const handler = async (): Promise<any> => {
+  const logoUrl = getPublicAssetUrl('logo.png');
+  const invoiceUrl = getPublicAssetUrl('templates/invoice.png');
+
+  // Fetch the file content (no auth required — public endpoint)
+  const response = await fetch(invoiceUrl);
+  const buffer = await response.arrayBuffer();
+
+  return { logoUrl, size: buffer.byteLength };
+};
+
+export default defineLogicFunction({
+  universalIdentifier: 'a1b2c3d4-...',
+  name: 'send-invoice',
+  description: 'Sends an invoice with the app logo',
+  timeoutSeconds: 10,
+  handler,
+});
+```
+
+**In a front component:**
+
+```tsx src/front-components/company-card.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { getPublicAssetUrl } from 'twenty-sdk/utils';
+
+const CompanyCard = () => {
+  const logoUrl = getPublicAssetUrl('logo.png');
+
+  return <img src={logoUrl} alt="App logo" />;
+};
+
+export default defineFrontComponent({
+  universalIdentifier: '...',
+  name: 'company-card',
+  component: CompanyCard,
+});
+```
+
+The `path` argument is relative to your app's `public/` folder. Both `getPublicAssetUrl('logo.png')` and `getPublicAssetUrl('public/logo.png')` resolve to the same URL — the `public/` prefix is stripped automatically if present.
+</file>
+
+<file path="apps/config/roles.mdx">
+---
+title: Roles & Permissions
+description: Declare what objects and fields your app's logic functions and front components can read and write.
+icon: 'shield-halved'
+---
+
+A **role** is a permission set: which objects an app can read or write, which fields it can see, and which platform-level capabilities it can use. Every app's logic functions and front components inherit the permissions of the role marked with `defineApplicationRole()` (see [The default function role](#the-default-function-role) below).
+
+```ts src/roles/restricted-company-role.ts
+import {
+  defineRole,
+  PermissionFlag,
+  STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS,
+} from 'twenty-sdk/define';
+
+export default defineRole({
+  universalIdentifier: '2c80f640-2083-4803-bb49-003e38279de6',
+  label: 'My new role',
+  description: 'A role that can be used in your workspace',
+  canReadAllObjectRecords: false,
+  canUpdateAllObjectRecords: false,
+  canSoftDeleteAllObjectRecords: false,
+  canDestroyAllObjectRecords: false,
+  canUpdateAllSettings: false,
+  canBeAssignedToAgents: false,
+  canBeAssignedToUsers: false,
+  canBeAssignedToApiKeys: false,
+  objectPermissions: [
+    {
+      objectUniversalIdentifier:
+        STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.company.universalIdentifier,
+      canReadObjectRecords: true,
+      canUpdateObjectRecords: true,
+      canSoftDeleteObjectRecords: false,
+      canDestroyObjectRecords: false,
+    },
+  ],
+  fieldPermissions: [
+    {
+      objectUniversalIdentifier:
+        STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.company.universalIdentifier,
+      fieldUniversalIdentifier:
+        STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.company.fields.name
+          .universalIdentifier,
+      canReadFieldValue: false,
+      canUpdateFieldValue: false,
+    },
+  ],
+  permissionFlags: [PermissionFlag.APPLICATIONS],
+});
+```
+
+## The default function role
+
+When you scaffold a new app, the CLI creates a default role file declared with `defineApplicationRole()`:
+
+```ts src/roles/default-role.ts
+import { defineApplicationRole, PermissionFlag } from 'twenty-sdk/define';
+
+export const DEFAULT_ROLE_UNIVERSAL_IDENTIFIER =
+  'b648f87b-1d26-4961-b974-0908fd991061';
+
+export default defineApplicationRole({
+  universalIdentifier: DEFAULT_ROLE_UNIVERSAL_IDENTIFIER,
+  label: 'Default function role',
+  description: 'Default role for function Twenty client',
+  canReadAllObjectRecords: true,
+  canUpdateAllObjectRecords: false,
+  canSoftDeleteAllObjectRecords: false,
+  canDestroyAllObjectRecords: false,
+  canUpdateAllSettings: false,
+  canBeAssignedToAgents: false,
+  canBeAssignedToUsers: false,
+  canBeAssignedToApiKeys: false,
+  objectPermissions: [],
+  fieldPermissions: [],
+  permissionFlags: [],
+});
+```
+
+`defineApplicationRole()` is a thin wrapper around `defineRole()` that flags **the** role used as your application's default at install time. Validation is identical to `defineRole`, but the build pipeline auto-wires its `universalIdentifier` into the application manifest's `defaultRoleUniversalIdentifier` — so you do not need to reference it from [`defineApplication`](/developers/extend/apps/config/application) yourself.
+
+Notes:
+
+- Exactly **one** `defineApplicationRole(...)` is allowed per app — the manifest build will fail if it finds more than one.
+- Use `defineRole()` (not `defineApplicationRole()`) for any **additional** roles your app ships.
+- Setting `defaultRoleUniversalIdentifier` explicitly on `defineApplication()` is still supported for backward compatibility, but is deprecated in favor of `defineApplicationRole()`.
+
+## Best practices
+
+- Start from the scaffolded role, then progressively restrict it — the default grants broad read access, which is rarely what you want in production.
+- Replace `objectPermissions` and `fieldPermissions` with the exact objects and fields your functions actually need.
+- `permissionFlags` control access to platform-level capabilities. Keep them minimal.
+- See a working example: [`hello-world/src/roles/function-role.ts`](https://github.com/twentyhq/twenty/blob/main/packages/twenty-apps/hello-world/src/roles/function-role.ts).
+</file>
+
+<file path="apps/data/extending-objects.mdx">
+---
+title: Extending Objects
+description: Add fields to standard Twenty objects (Person, Company, …) or to objects from other apps using defineField.
+icon: "wand-magic-sparkles"
+---
+
+Use `defineField()` to add a field to an object you don't own — a standard Twenty object like Person or Company, or an object shipped by another installed app. Unlike inline fields declared inside [`defineObject`](/developers/extend/apps/data/objects), standalone fields require an `objectUniversalIdentifier` to specify which object they extend.
+
+```ts src/fields/company-loyalty-tier.field.ts
+import { defineField, FieldType } from 'twenty-sdk/define';
+
+export default defineField({
+  universalIdentifier: 'f2a1b3c4-d5e6-7890-abcd-ef1234567890',
+  objectUniversalIdentifier: '701aecb9-eb1c-4d84-9d94-b954b231b64b', // Company object
+  name: 'loyaltyTier',
+  type: FieldType.SELECT,
+  label: 'Loyalty Tier',
+  icon: 'IconStar',
+  options: [
+    { value: 'BRONZE', label: 'Bronze', position: 0, color: 'orange' },
+    { value: 'SILVER', label: 'Silver', position: 1, color: 'gray' },
+    { value: 'GOLD', label: 'Gold', position: 2, color: 'yellow' },
+  ],
+});
+```
+
+## Key points
+
+- `objectUniversalIdentifier` identifies the target object. For standard Twenty objects, import the constant from `twenty-sdk`:
+
+  ```ts
+  import { STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS } from 'twenty-sdk/define';
+
+  // STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.company.universalIdentifier
+  // STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.person.universalIdentifier
+  // STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.opportunity.universalIdentifier
+  // …
+  ```
+
+- When defining fields **inline inside `defineObject()`**, you do **not** need `objectUniversalIdentifier` — it's inherited from the parent object.
+- `defineField()` is the only way to add fields to objects you didn't create with `defineObject()`.
+- File location is up to you. The convention is `src/fields/<name>.field.ts`, but the SDK detects fields anywhere in `src/`.
+
+## Adding a relation to an existing object
+
+To add a relation field (e.g. linking your custom object to a standard `Person`), use `defineField()` with `FieldType.RELATION`. The pattern is the same as for inline relations but with `objectUniversalIdentifier` set explicitly. See [Relations](/developers/extend/apps/data/relations) for the bidirectional pattern.
+</file>
+
+<file path="apps/data/objects.mdx">
+---
+title: Objects
+description: Declare new record types — custom tables with their own fields — using defineObject.
+icon: "table"
+---
+
+Custom **objects** are new record types your app adds to a workspace — Post Card, Invoice, Subscription, anything specific to your domain. Each object declares its schema (fields, relations, default values) and a stable universal identifier that survives across syncs and deploys.
+
+```ts src/objects/post-card.object.ts
+import { defineObject, FieldType } from 'twenty-sdk/define';
+
+enum PostCardStatus {
+  DRAFT = 'DRAFT',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED',
+  RETURNED = 'RETURNED',
+}
+
+export default defineObject({
+  universalIdentifier: '54b589ca-eeed-4950-a176-358418b85c05',
+  nameSingular: 'postCard',
+  namePlural: 'postCards',
+  labelSingular: 'Post Card',
+  labelPlural: 'Post Cards',
+  description: 'A post card object',
+  icon: 'IconMail',
+  fields: [
+    {
+      universalIdentifier: '58a0a314-d7ea-4865-9850-7fb84e72f30b',
+      name: 'content',
+      type: FieldType.TEXT,
+      label: 'Content',
+      description: "Postcard's content",
+      icon: 'IconAbc',
+    },
+    {
+      universalIdentifier: 'c6aa31f3-da76-4ac6-889f-475e226009ac',
+      name: 'recipientName',
+      type: FieldType.FULL_NAME,
+      label: 'Recipient name',
+      icon: 'IconUser',
+    },
+    {
+      universalIdentifier: '95045777-a0ad-49ec-98f9-22f9fc0c8266',
+      name: 'recipientAddress',
+      type: FieldType.ADDRESS,
+      label: 'Recipient address',
+      icon: 'IconHome',
+    },
+    {
+      universalIdentifier: '87b675b8-dd8c-4448-b4ca-20e5a2234a1e',
+      name: 'status',
+      type: FieldType.SELECT,
+      label: 'Status',
+      icon: 'IconSend',
+      defaultValue: `'${PostCardStatus.DRAFT}'`,
+      options: [
+        { value: PostCardStatus.DRAFT, label: 'Draft', position: 0, color: 'gray' },
+        { value: PostCardStatus.SENT, label: 'Sent', position: 1, color: 'orange' },
+        { value: PostCardStatus.DELIVERED, label: 'Delivered', position: 2, color: 'green' },
+        { value: PostCardStatus.RETURNED, label: 'Returned', position: 3, color: 'orange' },
+      ],
+    },
+    {
+      universalIdentifier: 'e06abe72-5b44-4e7f-93be-afc185a3c433',
+      name: 'deliveredAt',
+      type: FieldType.DATE_TIME,
+      label: 'Delivered at',
+      icon: 'IconCheck',
+      isNullable: true,
+      defaultValue: null,
+    },
+  ],
+});
+```
+
+## Key points
+
+- The `universalIdentifier` must be unique and stable across deployments.
+- Each field requires a `name`, `type`, `label`, and its own stable `universalIdentifier`.
+- The `fields` array is optional — you can define objects without custom fields.
+- Inline fields defined here do **not** need an `objectUniversalIdentifier` — it's inherited from the parent object. Use [`defineField()`](/developers/extend/apps/data/extending-objects) to add fields to objects you don't own.
+- You can scaffold new objects with `yarn twenty dev:add object`, which guides you through naming, fields, and relationships. See [Architecture → Scaffolding entities](/developers/extend/apps/getting-started/scaffolding).
+
+<Note>
+**Base fields are added automatically.** When you define a custom object, Twenty creates standard fields like `id`, `name`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`, and `deletedAt` for you. You don't need to declare them in your `fields` array — only your custom fields. You can override a default field by declaring one with the same name, but this is rarely a good idea.
+</Note>
+
+## What's next
+
+- **Connect this object to others** — see [Relations](/developers/extend/apps/data/relations) for the bidirectional relation pattern.
+- **Add fields to objects from other apps** — see [Extending Objects](/developers/extend/apps/data/extending-objects) for `defineField()`.
+- **Display this object in the UI** — see [Views](/developers/extend/apps/layout/views) and [Navigation Menu Items](/developers/extend/apps/layout/navigation-menu-items) to put it in the sidebar.
+</file>
+
+<file path="apps/data/overview.mdx">
+---
+title: Overview
+description: Shape the data your app adds to a workspace — objects, fields, and relations.
+icon: "database"
+---
+
+A Twenty app's **data layer** is the data your app *adds* to a workspace — the new record types it declares, the columns it adds to existing objects, and how those records connect to each other.
+
+```text
+┌──────────────────────────────────────────────────┐
+│ Object — a record type, e.g. PostCard            │
+│    ├─ Field     (name, type, label)              │
+│    ├─ Field                                      │
+│    └─ Relation  (link to another object)         │
+└──────────────────────────────────────────────────┘
+            │
+            ├── lives in your app, OR
+            │
+            ▼
+┌──────────────────────────────────────────────────┐
+│ Standard / other apps' objects                   │
+│    └─ Field added by your app via defineField    │
+└──────────────────────────────────────────────────┘
+```
+
+## In this section
+
+<CardGroup cols={2}>
+  <Card title="Objects" icon="table" href="/developers/extend/apps/data/objects">
+    `defineObject` — declare new record types with their own fields.
+  </Card>
+  <Card title="Extending Objects" icon="wand-magic-sparkles" href="/developers/extend/apps/data/extending-objects">
+    `defineField` — add fields to standard or other apps' objects.
+  </Card>
+  <Card title="Relations" icon="diagram-project" href="/developers/extend/apps/data/relations">
+    Bidirectional `MANY_TO_ONE` / `ONE_TO_MANY` connections between objects.
+  </Card>
+</CardGroup>
+
+## Entities at a glance
+
+| Entity | Purpose | Defined with |
+|--------|---------|--------------|
+| **Object** | A new custom record type (e.g. PostCard, Invoice) with its own fields | `defineObject()` |
+| **Field** | A column on an object. Standalone fields can extend objects you didn't create (e.g. add `loyaltyTier` to Company) | `defineField()` |
+| **Relation** | A bidirectional link between two objects — both sides declared as fields | `defineField()` with `FieldType.RELATION` |
+| **Index** | A database index to speed up a recurring query on one of your objects | `defineIndex()` |
+
+The SDK detects these via AST analysis at build time, so file organization is up to you — the convention is `src/objects/`, `src/fields/`, and `src/indexes/`. Stable `universalIdentifier` UUIDs tie everything together across deploys.
+
+## Indexes (optional)
+
+Apps can ship indexes alongside their objects to keep recurring queries fast. The most common case is a status or foreign-key column that you read frequently.
+
+```ts src/indexes/post-card-status.index.ts
+import { defineIndex } from 'twenty-sdk/define';
+
+import {
+  POST_CARD_UNIVERSAL_IDENTIFIER,
+  STATUS_FIELD_UNIVERSAL_IDENTIFIER,
+} from '../objects/post-card.object';
+
+export default defineIndex({
+  universalIdentifier: 'b6e9d2a1-5a4c-46ca-9d52-42c8f02d1ff0',
+  objectUniversalIdentifier: POST_CARD_UNIVERSAL_IDENTIFIER,
+  fields: [
+    {
+      universalIdentifier: 'b6e9d2a1-5a4c-46ca-9d52-42c8f02d1ff1',
+      fieldUniversalIdentifier: STATUS_FIELD_UNIVERSAL_IDENTIFIER,
+    },
+  ],
+});
+```
+
+### Unique indexes
+
+`defineIndex` accepts `isUnique: true` for both single- and multi-column uniqueness. This is the recommended primitive — `defineField({ isUnique: true })` is deprecated and will be removed in a future release.
+
+```ts
+defineIndex({
+  universalIdentifier: '…',
+  objectUniversalIdentifier: PERSON_UNIVERSAL_IDENTIFIER,
+  isUnique: true,
+  fields: [{ universalIdentifier: '…', fieldUniversalIdentifier: EMAIL_FIELD_UNIVERSAL_IDENTIFIER }],
+});
+```
+
+### Other constraints
+
+- Partial `WHERE` clauses stay under admin control — apps can't declare them.
+- Each object is capped at 10 custom indexes (the framework's own indexes don't count).
+
+Order the `fields` array the way Postgres should use it — leftmost column first, like a phone book. Indexes are not free: every write to the table updates them. Add one only when you have a query that needs it.
+
+<Note>
+Looking for **Application Config** or **Roles & Permissions**? Those describe the app itself rather than the data it adds — they live under [Config](/developers/extend/apps/config/overview). Looking for **Connections** (Linear, GitHub, Slack OAuth)? Those exist to be called *from* logic functions and live under [Logic](/developers/extend/apps/logic/connections).
+</Note>
+</file>
+
+<file path="apps/data/relations.mdx">
+---
+title: Relations
+description: Connect objects together with bidirectional MANY_TO_ONE / ONE_TO_MANY relations.
+icon: "diagram-project"
+---
+
+Relations connect two objects together. In Twenty, relations are always **bidirectional** — every relation has two sides, and each side is declared as a field that references the other.
+
+| Relation type | Description | Has foreign key? |
+|---------------|-------------|------------------|
+| `MANY_TO_ONE` | Many records of this object point to one record of the target | Yes (`joinColumnName`) |
+| `ONE_TO_MANY` | One record of this object has many records of the target | No (the inverse side) |
+
+## How relations work
+
+Every relation requires **two fields** that reference each other:
+
+1. The **MANY_TO_ONE** side — lives on the object that holds the foreign key.
+2. The **ONE_TO_MANY** side — lives on the object that owns the collection.
+
+Both fields use `FieldType.RELATION` and cross-reference each other via `relationTargetFieldMetadataUniversalIdentifier`.
+
+## Example: Post Card has many Recipients
+
+A `PostCard` can be sent to many `PostCardRecipient` records. Each recipient belongs to exactly one post card.
+
+**Step 1: Define the ONE_TO_MANY side on PostCard** (the "one" side):
+
+```ts src/fields/post-card-recipients-on-post-card.field.ts
+import { defineField, FieldType, RelationType } from 'twenty-sdk/define';
+import { POST_CARD_UNIVERSAL_IDENTIFIER } from '../objects/post-card.object';
+import { POST_CARD_RECIPIENT_UNIVERSAL_IDENTIFIER } from '../objects/post-card-recipient.object';
+
+// Export so the other side can reference it
+export const POST_CARD_RECIPIENTS_FIELD_ID = 'a1111111-1111-1111-1111-111111111111';
+// Import from the other side
+import { POST_CARD_FIELD_ID } from './post-card-on-post-card-recipient.field';
+
+export default defineField({
+  universalIdentifier: POST_CARD_RECIPIENTS_FIELD_ID,
+  objectUniversalIdentifier: POST_CARD_UNIVERSAL_IDENTIFIER,
+  type: FieldType.RELATION,
+  name: 'postCardRecipients',
+  label: 'Post Card Recipients',
+  icon: 'IconUsers',
+  relationTargetObjectMetadataUniversalIdentifier: POST_CARD_RECIPIENT_UNIVERSAL_IDENTIFIER,
+  relationTargetFieldMetadataUniversalIdentifier: POST_CARD_FIELD_ID,
+  universalSettings: {
+    relationType: RelationType.ONE_TO_MANY,
+  },
+});
+```
+
+**Step 2: Define the MANY_TO_ONE side on PostCardRecipient** (the "many" side — holds the foreign key):
+
+```ts src/fields/post-card-on-post-card-recipient.field.ts
+import { defineField, FieldType, RelationType, OnDeleteAction } from 'twenty-sdk/define';
+import { POST_CARD_UNIVERSAL_IDENTIFIER } from '../objects/post-card.object';
+import { POST_CARD_RECIPIENT_UNIVERSAL_IDENTIFIER } from '../objects/post-card-recipient.object';
+
+// Export so the other side can reference it
+export const POST_CARD_FIELD_ID = 'b2222222-2222-2222-2222-222222222222';
+// Import from the other side
+import { POST_CARD_RECIPIENTS_FIELD_ID } from './post-card-recipients-on-post-card.field';
+
+export default defineField({
+  universalIdentifier: POST_CARD_FIELD_ID,
+  objectUniversalIdentifier: POST_CARD_RECIPIENT_UNIVERSAL_IDENTIFIER,
+  type: FieldType.RELATION,
+  name: 'postCard',
+  label: 'Post Card',
+  icon: 'IconMail',
+  relationTargetObjectMetadataUniversalIdentifier: POST_CARD_UNIVERSAL_IDENTIFIER,
+  relationTargetFieldMetadataUniversalIdentifier: POST_CARD_RECIPIENTS_FIELD_ID,
+  universalSettings: {
+    relationType: RelationType.MANY_TO_ONE,
+    onDelete: OnDeleteAction.CASCADE,
+    joinColumnName: 'postCardId',
+  },
+});
+```
+
+<Note>
+**Circular imports:** both relation fields reference each other's `universalIdentifier`. To avoid circular import issues, export your field IDs as named constants from each file and import them in the other. The build system resolves these at compile time.
+</Note>
+
+## Relating to standard objects
+
+To create a relation with a built-in Twenty object (Person, Company, etc.), use `STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS`:
+
+```ts src/fields/person-on-self-hosting-user.field.ts
+import {
+  defineField,
+  FieldType,
+  RelationType,
+  OnDeleteAction,
+  STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS,
+} from 'twenty-sdk/define';
+import { SELF_HOSTING_USER_UNIVERSAL_IDENTIFIER } from '../objects/self-hosting-user.object';
+
+export const PERSON_FIELD_ID = 'c3333333-3333-3333-3333-333333333333';
+export const SELF_HOSTING_USER_REVERSE_FIELD_ID = 'd4444444-4444-4444-4444-444444444444';
+
+export default defineField({
+  universalIdentifier: PERSON_FIELD_ID,
+  objectUniversalIdentifier: SELF_HOSTING_USER_UNIVERSAL_IDENTIFIER,
+  type: FieldType.RELATION,
+  name: 'person',
+  label: 'Person',
+  description: 'Person matching with the self hosting user',
+  isNullable: true,
+  relationTargetObjectMetadataUniversalIdentifier:
+    STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.person.universalIdentifier,
+  relationTargetFieldMetadataUniversalIdentifier: SELF_HOSTING_USER_REVERSE_FIELD_ID,
+  universalSettings: {
+    relationType: RelationType.MANY_TO_ONE,
+    onDelete: OnDeleteAction.SET_NULL,
+    joinColumnName: 'personId',
+  },
+});
+```
+
+## Relation field properties
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `type` | Yes | Must be `FieldType.RELATION` |
+| `relationTargetObjectMetadataUniversalIdentifier` | Yes | The `universalIdentifier` of the target object |
+| `relationTargetFieldMetadataUniversalIdentifier` | Yes | The `universalIdentifier` of the matching field on the target object |
+| `universalSettings.relationType` | Yes | `RelationType.MANY_TO_ONE` or `RelationType.ONE_TO_MANY` |
+| `universalSettings.onDelete` | MANY_TO_ONE only | What happens when the referenced record is deleted: `CASCADE`, `SET_NULL`, `RESTRICT`, or `NO_ACTION` |
+| `universalSettings.joinColumnName` | MANY_TO_ONE only | Database column name for the foreign key (e.g., `postCardId`) |
+
+## Inline relation fields
+
+You can also declare a relation directly inside [`defineObject`](/developers/extend/apps/data/objects). When inline, omit `objectUniversalIdentifier` — it's inherited from the parent object:
+
+```ts
+export default defineObject({
+  universalIdentifier: '...',
+  nameSingular: 'postCardRecipient',
+  // ...
+  fields: [
+    {
+      universalIdentifier: POST_CARD_FIELD_ID,
+      type: FieldType.RELATION,
+      name: 'postCard',
+      label: 'Post Card',
+      relationTargetObjectMetadataUniversalIdentifier: POST_CARD_UNIVERSAL_IDENTIFIER,
+      relationTargetFieldMetadataUniversalIdentifier: POST_CARD_RECIPIENTS_FIELD_ID,
+      universalSettings: {
+        relationType: RelationType.MANY_TO_ONE,
+        onDelete: OnDeleteAction.CASCADE,
+        joinColumnName: 'postCardId',
+      },
+    },
+    // … other fields
+  ],
+});
+```
+</file>
+
+<file path="apps/getting-started/concepts.mdx">
+---
+title: Concepts
+description: How Twenty apps work — entity model, sandboxing, and the install lifecycle.
+icon: "sitemap"
+---
+
+Twenty apps are TypeScript packages that extend your workspace with custom objects, logic, UI components, and AI capabilities. They run on the Twenty platform with full sandboxing and permission controls.
+
+## How apps work
+
+An app is a collection of **entities** declared using `defineEntity()` functions from the `twenty-sdk` package. The SDK detects these declarations via AST analysis at build time and produces a **manifest** — a complete description of what your app adds to a workspace. These functions validate your configuration at build time and provide IDE autocompletion and type safety.
+
+```
+your-app/
+├── src/
+│   ├── application-config.ts    ← defineApplication (required, one per app)
+│   ├── roles/                   ← defineRole
+│   ├── objects/                 ← defineObject
+│   ├── fields/                  ← defineField
+│   ├── logic-functions/         ← defineLogicFunction
+│   ├── front-components/        ← defineFrontComponent
+│   ├── skills/                  ← defineSkill
+│   ├── agents/                  ← defineAgent
+│   ├── views/                   ← defineView
+│   ├── navigation-menu-items/   ← defineNavigationMenuItem
+│   └── page-layouts/            ← definePageLayout
+├── public/                      ← Static assets (images, icons)
+└── package.json
+```
+
+<Note>
+  **File organization is up to you.** Entity detection is AST-based — the SDK finds `export default defineEntity(...)` calls regardless of where the file lives. The folder structure above is a convention, not a requirement.
+</Note>
+
+## Entity types
+
+| Entity | Purpose | Docs |
+|--------|---------|------|
+| **Application** | App identity, default role, variables | [Application Config](/developers/extend/apps/config/application) |
+| **Role** | Permission sets on objects and fields | [Roles & Permissions](/developers/extend/apps/config/roles) |
+| **Object** | Custom record types with fields | [Objects](/developers/extend/apps/data/objects) |
+| **Field** | Add fields to objects from other apps | [Extending Objects](/developers/extend/apps/data/extending-objects) |
+| **Relation** | Bidirectional links between objects | [Relations](/developers/extend/apps/data/relations) |
+| **Logic Function** | Server-side TypeScript with triggers | [Logic Functions](/developers/extend/apps/logic/logic-functions) |
+| **Skill** | Reusable AI agent instructions | [Skills & Agents](/developers/extend/apps/logic/skills-and-agents) |
+| **Agent** | AI assistants with custom prompts | [Skills & Agents](/developers/extend/apps/logic/skills-and-agents) |
+| **Connection Provider** | OAuth credentials for third-party APIs | [Connections](/developers/extend/apps/logic/connections) |
+| **View** | Pre-configured record list views | [Views](/developers/extend/apps/layout/views) |
+| **Navigation Menu Item** | Custom sidebar entries | [Navigation Menu Items](/developers/extend/apps/layout/navigation-menu-items) |
+| **Page Layout** | Tabs and widgets on a record's detail page | [Page Layouts](/developers/extend/apps/layout/page-layouts) |
+| **Front Component** | Sandboxed React UI inside Twenty | [Front Components](/developers/extend/apps/layout/front-components) |
+| **Command Menu Item** | Quick actions and Cmd+K entries | [Command Menu Items](/developers/extend/apps/layout/command-menu-items) |
+
+## Sandboxing
+
+- **Logic functions** run in isolated Node.js processes on the server. They only access data through the typed API client, scoped to the app's role permissions.
+- **Front components** run in Web Workers using Remote DOM — sandboxed from the main page but rendering native DOM elements (not iframes). They communicate with Twenty via a message-passing host API.
+- **Permissions** are enforced at the API level. The runtime token (`TWENTY_APP_ACCESS_TOKEN`) is derived from the role defined in `defineApplication()`.
+
+## App lifecycle
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Development                                             │
+│   npx create-twenty-app → yarn twenty dev (live sync)   │
+├─────────────────────────────────────────────────────────┤
+│ Build & Deploy                                          │
+│   yarn twenty dev:build → yarn twenty app:publish        │
+├─────────────────────────────────────────────────────────┤
+│ Install flow                                            │
+│   upload → [pre-install] → metadata migration →         │
+│   generate SDK → [post-install]                         │
+├─────────────────────────────────────────────────────────┤
+│ Publish                                                 │
+│   npm publish → appears in Twenty marketplace           │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **`yarn twenty dev`** — watches your source files and live-syncs changes to a connected Twenty server. The typed API client is regenerated automatically when the schema changes.
+- **`yarn twenty dev:build`** — compiles TypeScript, bundles logic functions and front components with esbuild, and produces a manifest.
+- **Pre/post-install hooks** — optional functions that run during installation. See [Install Hooks](/developers/extend/apps/config/install-hooks) for details.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Config" icon="screwdriver-wrench" href="/developers/extend/apps/config/overview">
+    Application identity, default role, and install hooks.
+  </Card>
+  <Card title="Data" icon="database" href="/developers/extend/apps/data/overview">
+    Objects, fields, and bidirectional relations.
+  </Card>
+  <Card title="Logic" icon="bolt" href="/developers/extend/apps/logic/overview">
+    Logic functions, skills, agents, and OAuth connections.
+  </Card>
+  <Card title="Layout" icon="table-columns" href="/developers/extend/apps/layout/overview">
+    Views, navigation, page layouts, front components.
+  </Card>
+  <Card title="Operations" icon="rocket" href="/developers/extend/apps/operations/overview">
+    CLI, testing, remotes, CI, and publishing your app.
+  </Card>
+</CardGroup>
+</file>
+
+<file path="apps/getting-started/local-server.mdx">
+---
+title: Local Server
+description: Manage the local Twenty Docker server — start, stop, upgrade, parallel test instance, and manual SDK setup.
+icon: "server"
+---
+
+## Managing the local server
+
+Use `yarn twenty docker:*` to control the local Twenty container:
+
+| Command | What it does |
+|---------|--------------|
+| `yarn twenty docker:start` | Start the server (pulls the image if needed) |
+| `yarn twenty docker:start --port 3030` | Start on a custom port |
+| `yarn twenty docker:stop` | Stop the server (preserves data) |
+| `yarn twenty docker:status` | Show URL, version, and login credentials |
+| `yarn twenty docker:logs` | Stream server logs |
+| `yarn twenty docker:reset` | Wipe data and start fresh |
+| `yarn twenty docker:upgrade` | Pull the latest `twenty-app-dev` image |
+| `yarn twenty docker:upgrade 2.2.0` | Upgrade to a specific version |
+
+Data persists across restarts in two Docker volumes (`twenty-app-dev-data` for PostgreSQL, `twenty-app-dev-storage` for files). Use `reset` to wipe everything.
+
+## Upgrading the server image
+
+`yarn twenty docker:upgrade` pulls the latest image, compares digests, and only recreates the container if anything actually changed. Volumes are preserved — only the container is replaced. If a new image was pulled and the container was running, the upgrade automatically starts a new container; run `yarn twenty docker:start` afterward to wait for it to become healthy.
+
+```bash filename="Terminal"
+yarn twenty docker:upgrade            # Latest
+yarn twenty docker:upgrade 2.2.0      # Specific version
+```
+
+Verify the running version with `yarn twenty docker:status` (it shows the `APP_VERSION` baked into the container).
+
+## Running a parallel test instance
+
+Pass `--test` to any `docker:*` command to manage a second, fully isolated instance — useful for integration tests or experiments without touching your main dev data:
+
+| Command | What it does |
+|---------|--------------|
+| `yarn twenty docker:start --test` | Start the test instance (defaults to port 2021) |
+| `yarn twenty docker:stop --test` | Stop it |
+| `yarn twenty docker:status --test` | Show its status |
+| `yarn twenty docker:logs --test` | Stream its logs |
+| `yarn twenty docker:reset --test` | Wipe its data |
+| `yarn twenty docker:upgrade --test` | Upgrade its image |
+
+The test instance has its own container (`twenty-app-dev-test`), volumes (`twenty-app-dev-test-data`, `twenty-app-dev-test-storage`), and config — it runs alongside your main instance without conflicts. Combine `--test` with `--port` to override 2021.
+
+## Manual setup (without the scaffolder)
+
+Skip the scaffolder if you're adding the SDK to an existing project:
+
+```bash filename="Terminal"
+yarn add twenty-sdk twenty-client-sdk
+```
+
+Add the script to `package.json`:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "twenty": "twenty"
+  }
+}
+```
+
+You can now run `yarn twenty dev`, `yarn twenty docker:start`, and the rest.
+
+<Note>
+Don't install `twenty-sdk` globally — pin it per project so each app uses its own version.
+</Note>
+</file>
+
+<file path="apps/getting-started/project-structure.mdx">
+---
+title: Project Structure
+description: What's inside a scaffolded Twenty app — files, folders, and what each one does.
+icon: "folder-tree"
+---
+
+A new app generated by `npx create-twenty-app` looks like this:
+
+```text filename="my-twenty-app/"
+my-twenty-app/
+  package.json
+  src/
+    application-config.ts                   # Required — your app's entry point
+    default-role.ts                         # Permissions for logic functions
+    constants/
+      universal-identifiers.ts              # Auto-generated UUIDs and metadata
+    __tests__/
+      setup-test.ts
+      app-install.integration-test.ts
+  .github/workflows/ci.yml                  # GitHub Actions
+  public/                                   # Static assets
+  vitest.config.ts                          # Test runner config
+  tsconfig.json, tsconfig.spec.json
+  .nvmrc, .yarnrc.yml, .oxlintrc.json
+  README.md, LLMS.md
+```
+
+## Key files
+
+| File / Folder | Purpose |
+|---|---|
+| `src/application-config.ts` | **Required.** The main configuration file for your app. |
+| `src/default-role.ts` | Default role controlling what your logic functions can access. |
+| `src/constants/universal-identifiers.ts` | Auto-generated UUIDs and metadata (display name, description). |
+| `src/__tests__/` | Integration tests (setup + example test). |
+| `public/` | Static assets (images, fonts) served with your app. |
+
+<Note>
+**File organization is up to you.** The folders above are conventions — the SDK detects entities via AST analysis on `export default defineEntity(...)` calls regardless of where the file lives.
+</Note>
+</file>
+
+<file path="apps/getting-started/quick-start.mdx">
+---
+title: Quick Start
+icon: "rocket"
+description: Create your first Twenty app in minutes.
+---
+
+## Prerequisites
+
+- **Node.js 24+** — [Download](https://nodejs.org/)
+- **Yarn 4** — bundled with Node via Corepack. Enable it: `corepack enable`
+- **Docker** — [Download](https://www.docker.com/products/docker-desktop/). Needed to run a local Twenty server. Skip if you already have Twenty running elsewhere.
+
+Building a Twenty app has three phases. The scaffolder collapses them into one happy-path command, but each phase is a separate concept — when something fails, knowing which phase you're in tells you what to fix.
+
+| Phase | What you do | Tool | Result |
+|---|---|---|---|
+| **1. Scaffold** | Generate the app's source code | `npx create-twenty-app` | A TypeScript project on disk |
+| **2. Run a server** | Start a Twenty server to sync into | Docker + `yarn twenty server` | A running Twenty instance |
+| **3. Sync** | Live-sync your code to the server | `yarn twenty dev` | Your changes appear in the UI |
+
+---
+
+## Phase 1 — Scaffold your project
+
+Create a new app from the template:
+
+```bash filename="Terminal"
+npx create-twenty-app@latest my-twenty-app
+```
+
+You'll be prompted for a name and description — press **Enter** for the defaults. This generates a TypeScript project in `my-twenty-app/` with a starter `application-config.ts`, a default role, a CI workflow, and an integration test.
+
+**After this phase:** you have an app's source code on your machine. It isn't running yet — that's Phase 2.
+
+---
+
+## Phase 2 — Run a local Twenty server
+
+Your app needs a Twenty server to sync into. The server is a full Twenty instance — UI, GraphQL API, PostgreSQL — running locally in Docker. Your local code uploads its definitions to that server, which makes them appear in the UI.
+
+The scaffolder offers to start one for you:
+
+> **Would you like to set up a local Twenty instance?**
+
+- **Yes (recommended)** — pulls the `twentycrm/twenty-app-dev` Docker image and starts it on port `2020`. Make sure Docker is running first.
+- **No** — choose this if you already have a Twenty server you want to connect to. You can wire it up later with `yarn twenty remote:add`.
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/start-instance.png" alt="Should start local instance?" />
+</div>
+
+Once the server is up, a browser opens for sign-in. Use the pre-seeded demo account:
+
+- **Email:** `tim@apple.dev`
+- **Password:** `tim@apple.dev`
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/login.png" alt="Twenty login screen" />
+</div>
+
+Click **Authorize** on the next screen — this gives the CLI access to your workspace.
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/authorize.png" alt="Twenty CLI authorization screen" />
+</div>
+
+Your terminal will confirm everything is set up.
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/scaffolded.png" alt="App scaffolded successfully" />
+</div>
+
+**After this phase:** you have a running Twenty server at [http://localhost:2020](http://localhost:2020) with your CLI authorized to sync to it.
+
+<Note>
+If Docker isn't installed or running, the scaffolder will tell you the right start command for your OS. Once Docker is up, you can resume with `yarn twenty docker:start` — no need to re-scaffold.
+</Note>
+
+---
+
+## Phase 3 — Sync your changes
+
+This is the inner loop you'll spend most of your time in.
+
+```bash filename="Terminal"
+cd my-twenty-app
+yarn twenty dev
+```
+
+This watches `src/`, rebuilds on every change, and syncs the result to the server. Edit a file, save, and within a few seconds the server reflects the change. You'll see a live status panel in your terminal.
+
+For more detailed output (build logs, sync requests, error traces), add `--verbose`.
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/dev.png" alt="Dev mode terminal output" />
+</div>
+
+Open [http://localhost:2020/settings/applications#developer](http://localhost:2020/settings/applications#developer). You should see your app under **Your Apps**.
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/app-in-ui-1.png" alt="Your Apps list showing My twenty app" />
+</div>
+
+Click **My twenty app** to see its **application registration** — a server-level record describing your app (name, identifier, OAuth credentials, source). One registration can be installed across multiple workspaces on the same server.
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/app-in-ui-2.png" alt="Application registration details" />
+</div>
+
+Click **View installed app** to see the workspace install. The **About** tab shows version and management options.
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/app-in-ui-3.png" alt="Installed app" />
+</div>
+
+**After this phase:** you have a live development loop. Edit any file in `src/` and it appears in the UI.
+
+### One-shot sync for CI and scripts
+
+Pass `--once` to run a single build + sync and exit — same pipeline, no watcher:
+
+```bash filename="Terminal"
+yarn twenty dev --once
+```
+
+| Command | Behavior | When to use |
+|---------|----------|-------------|
+| `yarn twenty dev` | Watches and re-syncs on every change. Runs until you stop it. | Interactive local development. |
+| `yarn twenty dev --once` | Single build + sync, exits `0` on success, `1` on failure. | CI, pre-commit hooks, AI agents, scripted workflows. |
+
+Both modes need an authenticated remote.
+
+### Dev mode options
+
+| Flag | Description |
+|------|-------------|
+| `--once` | Build and sync once, then exit. |
+| `--debounceMs <ms>` | Set the file-change debounce delay in milliseconds (default: `2000`). |
+| `--verbose` / `--debug` | Show detailed build logs, sync requests, and error traces. |
+
+## What you can build
+
+Apps are composed of **entities** — each defined as a TypeScript file with a single `export default`:
+
+| Entity | What it does |
+|--------|-------------|
+| **Objects & Fields** | Custom data models (Post Card, Invoice, etc.) with typed fields |
+| **Logic functions** | Server-side TypeScript triggered by HTTP routes, cron schedules, or database events |
+| **Front components** | React components that render inside Twenty's UI (side panel, widgets, command menu) |
+| **Skills & Agents** | AI capabilities — reusable instructions and autonomous assistants |
+| **Views & Navigation** | Pre-configured list views and sidebar menu items |
+| **Page layouts** | Custom record detail pages with tabs and widgets |
+
+Full reference: [Concepts](/developers/extend/apps/getting-started/concepts).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Config" icon="screwdriver-wrench" href="/developers/extend/apps/config/overview">
+    Application identity, default role, install hooks, public assets.
+  </Card>
+  <Card title="Data" icon="database" href="/developers/extend/apps/data/overview">
+    Objects, fields, and bidirectional relations.
+  </Card>
+  <Card title="Logic" icon="bolt" href="/developers/extend/apps/logic/overview">
+    Logic functions, skills, agents, and OAuth connections.
+  </Card>
+  <Card title="Layout" icon="table-columns" href="/developers/extend/apps/layout/overview">
+    Views, navigation, page layouts, front components.
+  </Card>
+  <Card title="Operations" icon="rocket" href="/developers/extend/apps/operations/overview">
+    CLI, testing, remotes, CI, and publishing your app.
+  </Card>
+</CardGroup>
+</file>
+
+<file path="apps/getting-started/scaffolding.mdx">
+---
+title: Scaffolding
+description: Generate entity files interactively with yarn twenty dev:add — objects, fields, views, logic functions, and more.
+icon: "wand-magic-sparkles"
+---
+
+Instead of creating entity files by hand, use the interactive scaffolder:
+
+```bash filename="Terminal"
+yarn twenty dev:add
+```
+
+It prompts you to pick an entity type and walks you through the required fields, then writes a ready-to-use file with a stable `universalIdentifier` and the correct `defineEntity()` call.
+
+You can also pass the entity type directly to skip the first prompt:
+
+```bash filename="Terminal"
+yarn twenty dev:add object
+yarn twenty dev:add logicFunction
+yarn twenty dev:add frontComponent
+```
+
+## Available entity types
+
+| Entity type | Command | Generated file |
+|-------------|---------|----------------|
+| Object | `yarn twenty dev:add object` | `src/objects/<name>.ts` |
+| Field | `yarn twenty dev:add field` | `src/fields/<name>.ts` |
+| Logic function | `yarn twenty dev:add logicFunction` | `src/logic-functions/<name>.ts` |
+| Front component | `yarn twenty dev:add frontComponent` | `src/front-components/<name>.tsx` |
+| Role | `yarn twenty dev:add role` | `src/roles/<name>.ts` |
+| Skill | `yarn twenty dev:add skill` | `src/skills/<name>.ts` |
+| Agent | `yarn twenty dev:add agent` | `src/agents/<name>.ts` |
+| View | `yarn twenty dev:add view` | `src/views/<name>.ts` |
+| Navigation menu item | `yarn twenty dev:add navigationMenuItem` | `src/navigation-menu-items/<name>.ts` |
+| Page layout | `yarn twenty dev:add pageLayout` | `src/page-layouts/<name>.ts` |
+
+## What the scaffolder generates
+
+Each entity type has its own template. For example, `yarn twenty dev:add object` asks for:
+
+1. **Name (singular)** — e.g., `invoice`
+2. **Name (plural)** — e.g., `invoices`
+3. **Label (singular)** — auto-populated from the name (e.g., `Invoice`)
+4. **Label (plural)** — auto-populated (e.g., `Invoices`)
+5. **Create a view and navigation item?** — if you answer yes, the scaffolder also generates a matching view and sidebar link for the new object.
+
+Other entity types have simpler prompts — most only ask for a name.
+
+The `field` entity type is more detailed: it asks for the field name, label, type (from a list of all available field types like `TEXT`, `NUMBER`, `SELECT`, `RELATION`, etc.), and the target object's `universalIdentifier`.
+
+## Custom output path
+
+Use the `--path` flag to place the generated file in a custom location:
+
+```bash filename="Terminal"
+yarn twenty dev:add logicFunction --path src/custom-folder
+```
+</file>
+
+<file path="apps/getting-started/troubleshooting.mdx">
+---
+title: Troubleshooting
+description: Common first-run issues — Docker, Node version, Yarn, dependencies.
+icon: "wrench"
+---
+
+- **Docker errors** — Make sure Docker Desktop (or the daemon) is running before `yarn twenty docker:start`. The error message will show the right start command for your OS.
+- **Wrong Node version** — Need 24+. Check with `node -v`.
+- **Yarn 4 missing** — Run `corepack enable`.
+- **Dependencies broken** — `rm -rf node_modules && yarn install`.
+
+Stuck? Ask on the [Twenty Discord](https://discord.com/channels/1130383047699738754/1130386664812982322).
+</file>
+
+<file path="apps/layout/command-menu-items.mdx">
+---
+title: Command Menu Items
+description: Surface front components as quick actions and command menu (Cmd+K) entries with defineCommandMenuItem.
+icon: "terminal"
+---
+
+A **command menu item** is the bridge between the user and a [front component](/developers/extend/apps/layout/front-components). It registers the component in Twenty's command menu (Cmd+K) and, optionally, as a pinned quick-action button in the top-right corner of the page.
+
+```ts src/command-menu-items/open-dashboard.command-menu-item.ts
+import { defineCommandMenuItem } from 'twenty-sdk/define';
+
+export default defineCommandMenuItem({
+  universalIdentifier: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  label: 'Open Dashboard',
+  shortLabel: 'Dashboard',
+  icon: 'IconLayoutDashboard',
+  isPinned: true,
+  availabilityType: 'GLOBAL',
+  frontComponentUniversalIdentifier: '74c526eb-cb68-4cf7-b05c-0dd8c288d948',
+});
+```
+
+## Configuration fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `universalIdentifier` | Yes | Stable unique ID for the command |
+| `label` | Yes | Full label shown in the command menu (Cmd+K) |
+| `frontComponentUniversalIdentifier` | Yes | The `universalIdentifier` of the front component this command opens |
+| `shortLabel` | No | Shorter label displayed on the pinned quick-action button |
+| `icon` | No | Icon name displayed next to the label (e.g. `'IconBolt'`, `'IconSend'`) |
+| `isPinned` | No | When `true`, shows the command as a quick-action button in the top-right corner of the page |
+| `availabilityType` | No | Controls where the command appears: `'GLOBAL'` (always available), `'RECORD_SELECTION'` (only when records are selected), or `'FALLBACK'` (shown when no other commands match) |
+| `availabilityObjectUniversalIdentifier` | No | Restrict the command to pages of a specific object type (e.g. only on Company records) |
+| `conditionalAvailabilityExpression` | No | A boolean expression that dynamically controls visibility (see below) |
+
+## Headless commands
+
+A command menu item paired with a [headless front component](/developers/extend/apps/layout/front-components#headless-vs-non-headless) is the idiomatic way to ship a one-click action — run code, navigate, or confirm and execute. The Front Components page covers the [SDK Command components](/developers/extend/apps/layout/front-components#sdk-command-components) (`Command`, `CommandLink`, `CommandModal`, `CommandOpenSidePanelPage`) that handle the action-and-unmount pattern.
+
+A typical flow:
+
+```tsx src/front-components/run-action.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { Command } from 'twenty-sdk/command';
+import { CoreApiClient } from 'twenty-sdk/clients';
+
+const RunAction = () => {
+  const execute = async () => {
+    const client = new CoreApiClient();
+    await client.mutation({
+      createTask: {
+        __args: { data: { title: 'Created by my app' } },
+        id: true,
+      },
+    });
+  };
+
+  return <Command execute={execute} />;
+};
+
+export default defineFrontComponent({
+  universalIdentifier: 'e5f6a7b8-c9d0-1234-efab-345678901234',
+  name: 'run-action',
+  description: 'Creates a task from the command menu',
+  component: RunAction,
+  isHeadless: true,
+});
+```
+
+```ts src/command-menu-items/run-action.command-menu-item.ts
+import { defineCommandMenuItem } from 'twenty-sdk/define';
+
+export default defineCommandMenuItem({
+  universalIdentifier: 'f6a7b8c9-d0e1-2345-fabc-456789012345',
+  label: 'Run my action',
+  icon: 'IconPlayerPlay',
+  frontComponentUniversalIdentifier: 'e5f6a7b8-c9d0-1234-efab-345678901234',
+});
+```
+
+## Conditional availability expressions
+
+The `conditionalAvailabilityExpression` field lets you control when a command is visible based on the current page context. Import typed variables and operators from `twenty-sdk` to build expressions:
+
+```ts src/command-menu-items/bulk-update.command-menu-item.ts
+import { defineCommandMenuItem } from 'twenty-sdk/define';
+import {
+  objectPermissions,
+  everyEquals,
+} from 'twenty-sdk/front-component';
+
+export default defineCommandMenuItem({
+  universalIdentifier: '...',
+  label: 'Bulk Update',
+  availabilityType: 'RECORD_SELECTION',
+  frontComponentUniversalIdentifier: '...',
+  conditionalAvailabilityExpression: everyEquals(
+    objectPermissions,
+    'canUpdateObjectRecords',
+    true,
+  ),
+});
+```
+
+### Context variables
+
+These represent the current state of the page:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `pageType` | `string` | Current page type (e.g. `'RecordIndexPage'`, `'RecordShowPage'`) |
+| `isInSidePanel` | `boolean` | Whether the component is rendered in a side panel |
+| `numberOfSelectedRecords` | `number` | Number of currently selected records |
+| `isSelectAll` | `boolean` | Whether "select all" is active |
+| `selectedRecords` | `array` | The selected record objects |
+| `favoriteRecordIds` | `array` | IDs of favorited records |
+| `objectPermissions` | `object` | Permissions for the current object type |
+| `targetObjectReadPermissions` | `object` | Read permissions for the target object |
+| `targetObjectWritePermissions` | `object` | Write permissions for the target object |
+| `featureFlags` | `object` | Active feature flags |
+| `objectMetadataItem` | `object` | Metadata of the current object type |
+| `hasAnySoftDeleteFilterOnView` | `boolean` | Whether the current view has a soft-delete filter |
+
+### Operators
+
+Combine variables into boolean expressions:
+
+| Operator | Description |
+|----------|-------------|
+| `isDefined(value)` | `true` if the value is not null/undefined |
+| `isNonEmptyString(value)` | `true` if the value is a non-empty string |
+| `includes(array, value)` | `true` if the array contains the value |
+| `includesEvery(array, prop, value)` | `true` if every item's property includes the value |
+| `every(array, prop)` | `true` if the property is truthy on every item |
+| `everyDefined(array, prop)` | `true` if the property is defined on every item |
+| `everyEquals(array, prop, value)` | `true` if the property equals the value on every item |
+| `some(array, prop)` | `true` if the property is truthy on at least one item |
+| `someDefined(array, prop)` | `true` if the property is defined on at least one item |
+| `someEquals(array, prop, value)` | `true` if the property equals the value on at least one item |
+| `someNonEmptyString(array, prop)` | `true` if the property is a non-empty string on at least one item |
+| `none(array, prop)` | `true` if the property is falsy on every item |
+| `noneDefined(array, prop)` | `true` if the property is undefined on every item |
+| `noneEquals(array, prop, value)` | `true` if the property does not equal the value on any item |
+</file>
+
+<file path="apps/layout/front-components.mdx">
+---
+title: Front Components
+description: Build React components that render inside Twenty's UI with sandboxed isolation.
+icon: "window-maximize"
+---
+
+Front components are React components that render directly inside Twenty's UI. They run in an **isolated Web Worker** using Remote DOM — your code is sandboxed but renders natively in the page, not in an iframe.
+
+## Where front components can be used
+
+Front components can render in two locations within Twenty:
+
+- **Side panel** — Non-headless front components open in the right-hand side panel. This is the default behavior when a front component is triggered from the command menu.
+- **Widgets (dashboards and record pages)** — Front components can be embedded as widgets inside [page layouts](/developers/extend/apps/layout/page-layouts). When configuring a dashboard or a record page layout, users can add a front component widget.
+
+A front component on its own isn't reachable from the UI — you need to *surface* it. The two ways to do that are:
+
+- **Pair it with a [command menu item](/developers/extend/apps/layout/command-menu-items)** — registers it in the command menu (Cmd+K) and, optionally, as a pinned quick-action.
+- **Embed it as a widget in a [page layout](/developers/extend/apps/layout/page-layouts)** — places it on a record's detail page or dashboard.
+
+## Basic example
+
+The quickest way to see a front component in action is to pair it with a [`defineCommandMenuItem`](/developers/extend/apps/layout/command-menu-items), so it appears as a quick-action button in the top-right corner of the page:
+
+```tsx src/front-components/hello-world.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+
+const HelloWorld = () => {
+  return (
+    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
+      <h1>Hello from my app!</h1>
+      <p>This component renders inside Twenty.</p>
+    </div>
+  );
+};
+
+export default defineFrontComponent({
+  universalIdentifier: '74c526eb-cb68-4cf7-b05c-0dd8c288d948',
+  name: 'hello-world',
+  description: 'A simple front component',
+  component: HelloWorld,
+});
+```
+
+```ts src/command-menu-items/hello-world.command-menu-item.ts
+import { defineCommandMenuItem } from 'twenty-sdk/define';
+
+export default defineCommandMenuItem({
+  universalIdentifier: 'd4e5f6a7-b8c9-0123-defa-456789012345',
+  shortLabel: 'Hello',
+  label: 'Hello World',
+  icon: 'IconBolt',
+  isPinned: true,
+  availabilityType: 'GLOBAL',
+  frontComponentUniversalIdentifier: '74c526eb-cb68-4cf7-b05c-0dd8c288d948',
+});
+```
+
+After syncing with `yarn twenty dev` (or running a one-shot `yarn twenty dev --once`), the quick action appears in the top-right corner of the page:
+
+<div style={{textAlign: 'center'}}>
+  <img src="/images/docs/developers/extends/apps/quick-action.png" alt="Quick action button in the top-right corner" />
+</div>
+
+Click it to render the component inline.
+
+## Configuration fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `universalIdentifier` | Yes | Stable unique ID for this component |
+| `component` | Yes | A React component function |
+| `name` | No | Display name |
+| `description` | No | Description of what the component does |
+| `isHeadless` | No | Set to `true` if the component has no visible UI (see below) |
+
+## Placing a front component on a page
+
+Beyond commands, you can embed a front component directly into a record page by adding it as a widget in a **page layout**. See [Page Layouts](/developers/extend/apps/layout/page-layouts) for details.
+
+## Headless vs non-headless
+
+Front components come in two rendering modes controlled by the `isHeadless` option:
+
+**Non-headless (default)** — The component renders a visible UI. When triggered from the command menu it opens in the side panel. This is the default behavior when `isHeadless` is `false` or omitted.
+
+**Headless (`isHeadless: true`)** — The component mounts invisibly in the background. It does not open the side panel. Headless components are designed for actions that execute logic and then unmount themselves — for example, running an async task, navigating to a page, or showing a confirmation modal. They pair naturally with the SDK Command components described below.
+
+```tsx src/front-components/sync-tracker.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { useRecordId, enqueueSnackbar } from 'twenty-sdk/front-component';
+import { useEffect } from 'react';
+
+const SyncTracker = () => {
+  const recordId = useRecordId();
+
+  useEffect(() => {
+    enqueueSnackbar({ message: `Tracking record ${recordId}`, variant: 'info' });
+  }, [recordId]);
+
+  return null;
+};
+
+export default defineFrontComponent({
+  universalIdentifier: '...',
+  name: 'sync-tracker',
+  description: 'Tracks record views silently',
+  isHeadless: true,
+  component: SyncTracker,
+});
+```
+
+Because the component returns `null`, Twenty skips rendering a container for it — no empty space appears in the layout. The component still has access to all hooks and the host communication API.
+
+## SDK Command components
+
+The `twenty-sdk` package provides four Command helper components designed for headless front components. Each component executes an action on mount, handles errors by showing a snackbar notification, and automatically unmounts the front component when done.
+
+Import them from `twenty-sdk/command`:
+
+- **`Command`** — Runs an async callback via the `execute` prop.
+- **`CommandLink`** — Navigates to an app path. Props: `to`, `params`, `queryParams`, `options`.
+- **`CommandModal`** — Opens a confirmation modal. If the user confirms, executes the `execute` callback. Props: `title`, `subtitle`, `execute`, `confirmButtonText`, `confirmButtonAccent`.
+- **`CommandOpenSidePanelPage`** — Opens a specific side panel page. Props: `page`, `pageTitle`, `pageIcon`.
+
+Here is a full example of a headless front component using `Command` to run an action from the command menu:
+
+```tsx src/front-components/run-action.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { Command } from 'twenty-sdk/command';
+import { CoreApiClient } from 'twenty-sdk/clients';
+
+const RunAction = () => {
+  const execute = async () => {
+    const client = new CoreApiClient();
+
+    await client.mutation({
+      createTask: {
+        __args: { data: { title: 'Created by my app' } },
+        id: true,
+      },
+    });
+  };
+
+  return <Command execute={execute} />;
+};
+
+export default defineFrontComponent({
+  universalIdentifier: 'e5f6a7b8-c9d0-1234-efab-345678901234',
+  name: 'run-action',
+  description: 'Creates a task from the command menu',
+  component: RunAction,
+  isHeadless: true,
+});
+```
+
+```ts src/command-menu-items/run-action.command-menu-item.ts
+import { defineCommandMenuItem } from 'twenty-sdk/define';
+
+export default defineCommandMenuItem({
+  universalIdentifier: 'f6a7b8c9-d0e1-2345-fabc-456789012345',
+  label: 'Run my action',
+  icon: 'IconPlayerPlay',
+  frontComponentUniversalIdentifier: 'e5f6a7b8-c9d0-1234-efab-345678901234',
+});
+```
+
+And an example using `CommandModal` to ask for confirmation before executing:
+
+```tsx src/front-components/delete-draft.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { CommandModal } from 'twenty-sdk/command';
+
+const DeleteDraft = () => {
+  const execute = async () => {
+    // perform the deletion
+  };
+
+  return (
+    <CommandModal
+      title="Delete draft?"
+      subtitle="This action cannot be undone."
+      execute={execute}
+      confirmButtonText="Delete"
+      confirmButtonAccent="danger"
+    />
+  );
+};
+
+export default defineFrontComponent({
+  universalIdentifier: 'a7b8c9d0-e1f2-3456-abcd-567890123456',
+  name: 'delete-draft',
+  description: 'Deletes a draft with confirmation',
+  component: DeleteDraft,
+  isHeadless: true,
+});
+```
+
+## Accessing runtime context
+
+Inside your component, use SDK hooks to access the current user, record, and component instance:
+
+```tsx src/front-components/record-info.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import {
+  useUserId,
+  useRecordId,
+  useFrontComponentId,
+} from 'twenty-sdk/front-component';
+
+const RecordInfo = () => {
+  const userId = useUserId();
+  const recordId = useRecordId();
+  const componentId = useFrontComponentId();
+
+  return (
+    <div>
+      <p>User: {userId}</p>
+      <p>Record: {recordId ?? 'No record context'}</p>
+      <p>Component: {componentId}</p>
+    </div>
+  );
+};
+
+export default defineFrontComponent({
+  universalIdentifier: 'b2c3d4e5-f6a7-8901-bcde-f23456789012',
+  name: 'record-info',
+  component: RecordInfo,
+});
+```
+
+Available hooks:
+
+| Hook | Returns | Description |
+|------|---------|-------------|
+| `useUserId()` | `string` or `null` | The current user's ID |
+| `useSelectedRecordIds()` | `string[]` | All selected record IDs (empty array if none selected) |
+| `useRecordId()` | `string` or `null` | **Deprecated.** Use `useSelectedRecordIds()` instead |
+| `useFrontComponentId()` | `string` | This component instance's ID |
+| `useFrontComponentExecutionContext(selector)` | varies | Access the full execution context with a selector function |
+
+## Application variables
+
+Application variables defined in [`defineApplication()`](/developers/extend/apps/config/application) with `isSecret: false` are available inside front components via the `getApplicationVariable` utility:
+
+```tsx src/front-components/greeting.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { getApplicationVariable } from 'twenty-sdk/front-component';
+
+const Greeting = () => {
+  const recipientName = getApplicationVariable('DEFAULT_RECIPIENT_NAME') ?? 'World';
+
+  return <p>Hello, {recipientName}!</p>;
+};
+
+export default defineFrontComponent({
+  universalIdentifier: '...',
+  name: 'greeting',
+  component: Greeting,
+});
+```
+
+<Warning>
+Secret variables (`isSecret: true`) are **not** exposed to front components. They are only available in [logic functions](/developers/extend/apps/logic/logic-functions), which run server-side. This prevents sensitive values like API keys from being sent to the browser.
+</Warning>
+
+The following system variables are always available via `process.env`:
+
+| Variable | Description |
+|----------|-------------|
+| `TWENTY_API_URL` | Base URL of the Twenty API |
+| `TWENTY_APP_ACCESS_TOKEN` | Short-lived token scoped to your app's role |
+
+## Host communication API
+
+Front components can trigger navigation, modals, and notifications using functions from `twenty-sdk`:
+
+| Function | Description |
+|----------|-------------|
+| `navigate(to, params?, queryParams?, options?)` | Navigate to a page in the app |
+| `openSidePanelPage(params)` | Open a side panel |
+| `closeSidePanel()` | Close the side panel |
+| `openCommandConfirmationModal(params)` | Show a confirmation dialog |
+| `enqueueSnackbar(params)` | Show a toast notification |
+| `unmountFrontComponent()` | Unmount the component |
+| `updateProgress(progress)` | Update a progress indicator |
+
+Here is an example that uses the host API to show a snackbar and close the side panel after an action completes:
+
+```tsx src/front-components/archive-record.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { useRecordId } from 'twenty-sdk/front-component';
+import { enqueueSnackbar, closeSidePanel } from 'twenty-sdk/front-component';
+import { CoreApiClient } from 'twenty-sdk/clients';
+
+const ArchiveRecord = () => {
+  const recordId = useRecordId();
+
+  const handleArchive = async () => {
+    const client = new CoreApiClient();
+
+    await client.mutation({
+      updateTask: {
+        __args: { id: recordId, data: { status: 'ARCHIVED' } },
+        id: true,
+      },
+    });
+
+    await enqueueSnackbar({
+      message: 'Record archived',
+      variant: 'success',
+    });
+
+    await closeSidePanel();
+  };
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <p>Archive this record?</p>
+      <button onClick={handleArchive}>Archive</button>
+    </div>
+  );
+};
+
+export default defineFrontComponent({
+  universalIdentifier: 'c9d0e1f2-a3b4-5678-cdef-789012345678',
+  name: 'archive-record',
+  description: 'Archives the current record',
+  component: ArchiveRecord,
+});
+```
+
+### Working with multiple records
+
+Use `useSelectedRecordIds()` to handle multiple selected records. This is useful for bulk operations:
+
+```tsx src/front-components/bulk-export.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { useSelectedRecordIds, numberOfSelectedRecords } from 'twenty-sdk/front-component';
+import { enqueueSnackbar, closeSidePanel } from 'twenty-sdk/front-component';
+import { CoreApiClient } from 'twenty-sdk/clients';
+
+const BulkExport = () => {
+  const selectedRecordIds = useSelectedRecordIds();
+
+  const handleExport = async () => {
+    const client = new CoreApiClient();
+
+    for (const recordId of selectedRecordIds) {
+      await client.mutation({
+        updateTask: {
+          __args: { id: recordId, data: { exported: true } },
+          id: true,
+        },
+      });
+    }
+
+    await enqueueSnackbar({
+      message: `Exported ${selectedRecordIds.length} records`,
+      variant: 'success',
+    });
+
+    await closeSidePanel();
+  };
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <p>Export {selectedRecordIds.length} selected record(s)?</p>
+      <button onClick={handleExport}>Export</button>
+    </div>
+  );
+};
+
+export default defineFrontComponent({
+  universalIdentifier: 'd0e1f2a3-b4c5-6789-defa-012345678901',
+  name: 'bulk-export',
+  description: 'Export selected records',
+  component: BulkExport,
+  command: {
+    universalIdentifier: 'd0e1f2a3-b4c5-6789-defa-012345678902',
+    label: 'Bulk Export',
+    availabilityType: 'RECORD_SELECTION',
+    conditionalAvailabilityExpression: numberOfSelectedRecords > 0,
+  },
+});
+```
+
+## Public assets
+
+Front components can access files from the app's `public/` directory using `getPublicAssetUrl`:
+
+```tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { getPublicAssetUrl } from 'twenty-sdk/utils';
+
+const Logo = () => <img src={getPublicAssetUrl('logo.png')} alt="Logo" />;
+
+export default defineFrontComponent({
+  universalIdentifier: '...',
+  name: 'logo',
+  component: Logo,
+});
+```
+
+See the [public assets section](/developers/extend/apps/config/public-assets) for details.
+
+## Styling
+
+Front components support multiple styling approaches. You can use:
+
+- **Inline styles** — `style={{ color: 'red' }}`
+- **Twenty UI components** — import from `twenty-sdk/ui` (Button, Tag, Status, Chip, Avatar, and more)
+- **Emotion** — CSS-in-JS with `@emotion/react`
+- **Styled-components** — `styled.div` patterns
+- **Tailwind CSS** — utility classes
+- **Any CSS-in-JS library** compatible with React
+
+```tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { Button, Tag, Status } from 'twenty-sdk/ui';
+
+const StyledWidget = () => {
+  return (
+    <div style={{ padding: '16px', display: 'flex', gap: '8px' }}>
+      <Button title="Click me" onClick={() => alert('Clicked!')} />
+      <Tag text="Active" color="green" />
+      <Status color="green" text="Online" />
+    </div>
+  );
+};
+
+export default defineFrontComponent({
+  universalIdentifier: 'e5f6a7b8-c9d0-1234-efab-567890123456',
+  name: 'styled-widget',
+  component: StyledWidget,
+});
+```
+</file>
+
+<file path="apps/layout/navigation-menu-items.mdx">
+---
+title: Navigation Menu Items
+description: Add custom entries to the workspace sidebar — links to saved views or external URLs.
+icon: "bars"
+---
+
+A **navigation menu item** is an entry in the left sidebar. Use `defineNavigationMenuItem()` to ship custom sidebar links — typically one per [view](/developers/extend/apps/layout/views) you ship — or to point at external URLs.
+
+```ts src/navigation-menu-items/example-navigation-menu-item.ts
+import { defineNavigationMenuItem, NavigationMenuItemType } from 'twenty-sdk/define';
+import { EXAMPLE_VIEW_UNIVERSAL_IDENTIFIER } from '../views/example-view';
+
+export default defineNavigationMenuItem({
+  universalIdentifier: '9327db91-afa1-41b6-bd9d-2b51a26efb4c',
+  name: 'example-navigation-menu-item',
+  icon: 'IconList',
+  color: 'blue',
+  position: 0,
+  type: NavigationMenuItemType.VIEW,
+  viewUniversalIdentifier: EXAMPLE_VIEW_UNIVERSAL_IDENTIFIER,
+});
+```
+
+## Key points
+
+- `type` determines what the menu item links to. Each type pairs with a specific identifier field:
+
+  | Type | What it does | Required field |
+  |------|--------------|----------------|
+  | `NavigationMenuItemType.VIEW` | Opens a saved view | `viewUniversalIdentifier` |
+  | `NavigationMenuItemType.LINK` | Opens an external URL | `link` |
+  | `NavigationMenuItemType.FOLDER` | Groups nested items under a label | `name` (and child items reference the folder via `folderUniversalIdentifier`) |
+  | `NavigationMenuItemType.OBJECT` | Opens an object's default index page | `targetObjectUniversalIdentifier` |
+  | `NavigationMenuItemType.PAGE_LAYOUT` | Opens a standalone page layout | `pageLayoutUniversalIdentifier` |
+
+- `position` controls ordering in the sidebar.
+- `icon` and `color` are optional and customize how the entry looks.
+- `folderUniversalIdentifier` is also available on any item to nest it inside a `FOLDER`-type parent.
+
+<Note>
+**Common pitfall:** creating an object without an associated view + navigation menu item makes that object invisible to users. Unless it's a technical/internal object, every custom object should have a default view *and* a sidebar entry pointing at it.
+</Note>
+</file>
+
+<file path="apps/layout/overview.mdx">
+---
+title: Overview
+description: Place your app inside Twenty's UI — sidebar entries, saved views, record page tabs, and sandboxed React components.
+icon: "table-columns"
+---
+
+A Twenty app's **layout layer** is everything the user sees: where the app surfaces in the sidebar, which list views it ships, how its record detail pages are arranged, and which custom React components render inside those pages.
+
+```text
+   Sidebar               Record list            Record detail page
+   ───────               ───────────            ──────────────────
+   [📋 My View]    ────▶ ┌──────────┐          ┌─────────────────────┐
+   [📋 Drafts ]          │ Companies│          │ Tabs: [Overview ]   │
+   [📋 Inbox  ]          │ ──────── │          │       [Notes    ]   │
+        ▲                │  Apple   │          │       [Hello    ]◀──── definePageLayoutTab
+        │                │  Acme    │          │                     │   adds a tab...
+        └ defineNavi-    │  …       │          │  ┌────────────────┐ │
+          gationMenu-    └────▲─────┘          │  │                │ │
+          Item points         │                │  │   React UI     │◀── …with a
+          to a defineView     │                │  │  (sandboxed in │ │   defineFrontComponent
+                              └ defineView     │  │   a Worker)    │ │   widget inside
+                                picks columns  │  └────────────────┘ │
+                                and filters    └─────────────────────┘
+```
+
+## In this section
+
+<CardGroup cols={2}>
+  <Card title="Views" icon="list" href="/developers/extend/apps/layout/views">
+    `defineView` — saved list configurations: visible columns, filters, groups.
+  </Card>
+  <Card title="Navigation Menu Items" icon="bars" href="/developers/extend/apps/layout/navigation-menu-items">
+    `defineNavigationMenuItem` — sidebar entries pointing at views or external URLs.
+  </Card>
+  <Card title="Page Layouts" icon="table-columns" href="/developers/extend/apps/layout/page-layouts">
+    `definePageLayout` and `definePageLayoutTab` — tabs and widgets on a record's detail page.
+  </Card>
+  <Card title="Front Components" icon="window-maximize" href="/developers/extend/apps/layout/front-components">
+    `defineFrontComponent` — sandboxed React components that render inside Twenty.
+  </Card>
+  <Card title="Command Menu Items" icon="terminal" href="/developers/extend/apps/layout/command-menu-items">
+    `defineCommandMenuItem` — register front components as Cmd+K entries and quick actions.
+  </Card>
+</CardGroup>
+
+## Where the app surfaces
+
+| Surface | What it controls | Entity |
+|---------|------------------|--------|
+| **Sidebar** | A custom entry linking to a saved view or external URL | `defineNavigationMenuItem` |
+| **Record list** | A saved configuration for an object — visible columns, order, filters, groups | `defineView` |
+| **Record detail page** | The tabs and widgets on a record page (your own object's, or a standard one) | `definePageLayout`, `definePageLayoutTab` |
+| **Inside any of the above** | A custom React widget — buttons, forms, dashboards, integrations | `defineFrontComponent` |
+| **Command menu (Cmd+K)** | A pinned quick action or hidden command | `defineCommandMenuItem` |
+
+Front components run inside an isolated Web Worker using Remote DOM — they render *natively* in the page (not inside an iframe), but cannot reach the host page or DOM directly. Communication with Twenty happens through a message-passing host API.
+</file>
+
+<file path="apps/layout/page-layouts.mdx">
+---
+title: Page Layouts
+description: Customize record detail pages — tabs, widgets, and where front components render — using definePageLayout and definePageLayoutTab.
+icon: "table-columns"
+---
+
+A **page layout** controls how a record's detail page is arranged: which tabs appear and what widgets they contain. Use `definePageLayout()` to declare a layout for an object you own, or `definePageLayoutTab()` to add a single tab to a layout that already exists (yours or a standard Twenty one).
+
+| Use case | Entity |
+|----------|--------|
+| Define the entire layout for a record page on an object you own | `definePageLayout` |
+| Add one tab to an existing layout (your own object, or a standard one) | `definePageLayoutTab` |
+
+## definePageLayout
+
+Use this when you own the entire detail page — typically for a custom object you defined yourself.
+
+```ts src/page-layouts/example-record-page-layout.ts
+import { definePageLayout, PageLayoutTabLayoutMode } from 'twenty-sdk/define';
+import { EXAMPLE_OBJECT_UNIVERSAL_IDENTIFIER } from '../objects/example-object';
+import { HELLO_WORLD_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from '../front-components/hello-world';
+
+export default definePageLayout({
+  universalIdentifier: '203aeb94-6701-46d6-9af1-be2bbcc9e134',
+  name: 'Example Record Page',
+  type: 'RECORD_PAGE',
+  objectUniversalIdentifier: EXAMPLE_OBJECT_UNIVERSAL_IDENTIFIER,
+  tabs: [
+    {
+      universalIdentifier: '6ed26b60-a51d-4ad7-86dd-1c04c7f3cac5',
+      title: 'Hello World',
+      position: 50,
+      icon: 'IconWorld',
+      layoutMode: PageLayoutTabLayoutMode.CANVAS,
+      widgets: [
+        {
+          universalIdentifier: 'aa4234e0-2e5f-4c02-a96a-573449e2351d',
+          title: 'Hello World',
+          type: 'FRONT_COMPONENT',
+          configuration: {
+            configurationType: 'FRONT_COMPONENT',
+            frontComponentUniversalIdentifier:
+              HELLO_WORLD_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER,
+          },
+        },
+      ],
+    },
+  ],
+});
+```
+
+### Key points
+
+- `type` is typically `'RECORD_PAGE'` to customize the detail view of a specific object.
+- `objectUniversalIdentifier` specifies which object this layout applies to.
+- Each `tab` defines a section of the page with a `title`, `position`, and `layoutMode` (`CANVAS` for free-form layout).
+- Each `widget` inside a tab can render a [front component](/developers/extend/apps/layout/front-components), a relation list, or other built-in widget types.
+- `position` on tabs controls their order. Use higher values (e.g., 50) to place custom tabs after built-in ones.
+
+## definePageLayoutTab
+
+Use this when you only want to **add** a tab to an existing layout — for example, an analytics tab on the standard Company page, or an AI summary tab attached to your own object's layout.
+
+```ts src/page-layouts/example-extra-tab.ts
+import {
+  definePageLayoutTab,
+  PageLayoutTabLayoutMode,
+} from 'twenty-sdk/define';
+import { HELLO_WORLD_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from '../front-components/hello-world';
+
+const COMPANY_RECORD_PAGE_LAYOUT_UNIVERSAL_IDENTIFIER =
+  '20202020-ab01-4001-8001-c0aba11c0100';
+
+export default definePageLayoutTab({
+  universalIdentifier: 'b1b2b3b4-b5b6-4000-8000-000000000001',
+  pageLayoutUniversalIdentifier:
+    COMPANY_RECORD_PAGE_LAYOUT_UNIVERSAL_IDENTIFIER,
+  title: 'Hello World',
+  position: 1000,
+  icon: 'IconWorld',
+  layoutMode: PageLayoutTabLayoutMode.CANVAS,
+  widgets: [
+    {
+      universalIdentifier: 'b1b2b3b4-b5b6-4000-8000-000000000002',
+      title: 'Hello World',
+      type: 'FRONT_COMPONENT',
+      configuration: {
+        configurationType: 'FRONT_COMPONENT',
+        frontComponentUniversalIdentifier:
+          HELLO_WORLD_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER,
+      },
+    },
+  ],
+});
+```
+
+### Key points
+
+- `pageLayoutUniversalIdentifier` is **required** and must point to a page layout that already exists at install time — either a standard Twenty layout or one defined by your own app. Cross-app references to layouts owned by another installed app are not supported today. When the parent layout is missing, installation fails with a clear validation error.
+- `widgets` are scoped to this tab only — they reference [front components](/developers/extend/apps/layout/front-components), views, etc. exactly like widgets defined inline in `definePageLayout`.
+- `position` controls ordering against existing tabs on the targeted layout. Pick a value that places your tab where you want it relative to built-in tabs.
+- Use this instead of `definePageLayout` when you only want to add to an existing layout. Use `definePageLayout` when you own the entire layout.
+</file>
+
+<file path="apps/layout/views.mdx">
+---
+title: Views
+description: Ship pre-configured saved views — column order, filters, groups — for objects in your app.
+icon: 'list'
+---
+
+A **view** is a saved configuration for how records of an object are displayed: which fields appear, their order, whether they're visible, and any filters or groups applied. Use `defineView()` to ship pre-configured views with your app — typically a default index view for each custom object you create.
+
+```ts src/views/example-view.ts
+import { defineView, ViewKey } from 'twenty-sdk/define';
+import { EXAMPLE_OBJECT_UNIVERSAL_IDENTIFIER } from '../objects/example-object';
+import { NAME_FIELD_UNIVERSAL_IDENTIFIER } from '../objects/example-object';
+
+export default defineView({
+  universalIdentifier: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  name: 'All example items',
+  objectUniversalIdentifier: EXAMPLE_OBJECT_UNIVERSAL_IDENTIFIER,
+  icon: 'IconList',
+  key: ViewKey.INDEX,
+  position: 0,
+  fields: [
+    {
+      universalIdentifier: 'f926bdb7-6af7-4683-9a09-adbca56c29f0',
+      fieldMetadataUniversalIdentifier: NAME_FIELD_UNIVERSAL_IDENTIFIER,
+      position: 0,
+      isVisible: true,
+      size: 200,
+    },
+  ],
+});
+```
+
+## Key points
+
+- `objectUniversalIdentifier` specifies which object this view applies to. It can be a custom object you defined or a standard Twenty object.
+- `key` determines the view type — `ViewKey.INDEX` is the main list view for the object.
+- `fields` controls which columns appear and in what order. Each field references a `fieldMetadataUniversalIdentifier`.
+- You can also declare `filters`, `filterGroups`, `groups`, and `fieldGroups` for advanced configurations.
+- `position` controls ordering when multiple views exist for the same object.
+
+## Filters
+
+A view can ship with pre-applied filters. Each filter has three coordinates: the **field** being filtered, the **operand** (how to compare), and the **value** (what to compare against). All three must line up — using an operand that doesn't apply to a field type will be rejected at sync time.
+
+```ts
+import { ViewFilterOperand } from 'twenty-shared/types';
+
+filters: [
+  {
+    universalIdentifier: '...',
+    fieldMetadataUniversalIdentifier: STATUS_FIELD_UNIVERSAL_IDENTIFIER,
+    operand: ViewFilterOperand.IS,
+    value: ['ACTIVE'],
+  },
+],
+```
+
+### Supported operands per field type
+
+| Field type                                                                                         | Supported operands                                                                                                 |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `TEXT`, `EMAILS`, `FULL_NAME`, `ADDRESS`, `LINKS`, `PHONES`, `RAW_JSON`, `FILES`, `ACTOR`, `ARRAY` | `CONTAINS`, `DOES_NOT_CONTAIN`, `IS_EMPTY`, `IS_NOT_EMPTY`                                                         |
+| `ACTOR.source`, `ACTOR.workspaceMemberId`                                                          | `IS`, `IS_NOT`, `IS_EMPTY`, `IS_NOT_EMPTY`                                                                         |
+| `SELECT`                                                                                           | `IS`, `IS_NOT`, `IS_EMPTY`, `IS_NOT_EMPTY`                                                                         |
+| `MULTI_SELECT`                                                                                     | `CONTAINS`, `DOES_NOT_CONTAIN`, `IS_EMPTY`, `IS_NOT_EMPTY`                                                         |
+| `RELATION`                                                                                         | `IS`, `IS_NOT`, `IS_EMPTY`, `IS_NOT_EMPTY`                                                                         |
+| `NUMBER`                                                                                           | `IS`, `IS_NOT`, `GREATER_THAN_OR_EQUAL`, `LESS_THAN_OR_EQUAL`, `IS_EMPTY`, `IS_NOT_EMPTY`                          |
+| `RATING`                                                                                           | `IS`, `GREATER_THAN_OR_EQUAL`, `LESS_THAN_OR_EQUAL`, `IS_EMPTY`, `IS_NOT_EMPTY`                                    |
+| `CURRENCY`, `CURRENCY.amountMicros`                                                                | `GREATER_THAN_OR_EQUAL`, `LESS_THAN_OR_EQUAL`, `IS`, `IS_NOT`, `IS_EMPTY`, `IS_NOT_EMPTY`                          |
+| `CURRENCY.currencyCode`                                                                            | `IS`, `IS_NOT`, `IS_EMPTY`, `IS_NOT_EMPTY`                                                                         |
+| `DATE`, `DATE_TIME`                                                                                | `IS`, `IS_RELATIVE`, `IS_IN_PAST`, `IS_IN_FUTURE`, `IS_TODAY`, `IS_BEFORE`, `IS_AFTER`, `IS_EMPTY`, `IS_NOT_EMPTY` |
+| `BOOLEAN`                                                                                          | `IS`                                                                                                               |
+| `UUID`                                                                                             | `IS`, `IS_NOT`, `IS_EMPTY`, `IS_NOT_EMPTY`                                                                         |
+| `TS_VECTOR`                                                                                        | `VECTOR_SEARCH`                                                                                                    |
+
+> Field types with similar names can use entirely different operands — `SELECT` and `MULTI_SELECT` being a common case.
+
+### Value shape per operand
+
+The `value` field is always a JSON-serializable value, but its expected shape depends on the operand:
+
+| Operand family                                        | Value shape                    | Example                  |
+| ----------------------------------------------------- | ------------------------------ | ------------------------ |
+| `IS`, `IS_NOT` on `SELECT`                            | array of option keys (strings) | `['ACTIVE', 'PENDING']`  |
+| `CONTAINS`, `DOES_NOT_CONTAIN` on `MULTI_SELECT`      | array of option keys (strings) | `['TAG_A']`              |
+| `IS`, `IS_NOT` on `RELATION`                          | array of record IDs (uuids)    | `['c5a1...']`            |
+| `CONTAINS`, `DOES_NOT_CONTAIN` on text-like fields    | string                         | `'acme'`                 |
+| `IS`, `IS_NOT` on `NUMBER`                            | string (the value)             | `'5'`                    |
+| `IS` on `RATING` / `UUID`                             | string (the value)             | `'5'`                    |
+| `GREATER_THAN_OR_EQUAL`, `LESS_THAN_OR_EQUAL`         | string (the bound)             | `'10'`                   |
+| `IS`, `IS_BEFORE`, `IS_AFTER` on `DATE` / `DATE_TIME` | ISO 8601 string                | `'2025-01-01T00:00:00Z'` |
+| `IS_EMPTY`, `IS_NOT_EMPTY`                            | empty string                   | `''`                     |
+| `IS` on `BOOLEAN`                                     | `'true'` or `'false'`          | `'true'`                 |
+
+## How views show up in the UI
+
+A view by itself isn't reachable from the sidebar. To make it appear there, pair it with a [navigation menu item](/developers/extend/apps/layout/navigation-menu-items) of type `VIEW` that points at the view's `universalIdentifier`. That's the canonical pattern: every custom object typically ships a default view + a sidebar entry that opens it.
+</file>
+
+<file path="apps/logic/connections.mdx">
+---
+title: Connections
+description: Let your app act on a user's behalf in third-party services via OAuth.
+icon: 'plug'
+---
+
+Connections are credentials a user holds for an external service (Linear, GitHub, Slack, ...). Your app declares **how** those credentials are obtained — a **connection provider** — and consumes them at runtime to make authenticated calls to the third-party API.
+
+Today only OAuth 2.0 is supported. Future credential types (personal access tokens, API keys, basic auth) will plug into the same surface — apps already using `defineConnectionProvider({ type: 'oauth', ... })` won't need to migrate.
+
+<AccordionGroup>
+
+<Accordion title="defineConnectionProvider" description="Declare how your app's connections are obtained">
+
+A connection provider describes the OAuth handshake your app needs. The user clicks "Add connection" in your app's settings, completes the provider's consent screen, and a `ConnectedAccount` row is created in their workspace.
+
+A working setup needs **two files** — the connection provider, and a matching `serverVariables` declaration on `defineApplication` that holds the OAuth client credentials.
+
+```ts src/connection-providers/linear-connection.ts
+import { defineConnectionProvider } from 'twenty-sdk/define';
+
+export default defineConnectionProvider({
+  universalIdentifier: '9c7d1f5e-6a0b-4d44-be0c-3f8b5a9d4e6f',
+  name: 'linear',
+  displayName: 'Linear',
+  icon: 'IconBrandLinear',
+  type: 'oauth',
+  oauth: {
+    authorizationEndpoint: 'https://linear.app/oauth/authorize',
+    tokenEndpoint: 'https://api.linear.app/oauth/token',
+    scopes: ['read', 'write'],
+    // These must match keys in `defineApplication.serverVariables` below.
+    clientIdVariable: 'LINEAR_CLIENT_ID',
+    clientSecretVariable: 'LINEAR_CLIENT_SECRET',
+    // Optional: defaults to 'json'. Some providers (Linear, Slack) want
+    // 'form-urlencoded' for the token request.
+    tokenRequestContentType: 'form-urlencoded',
+    // Optional: defaults to true. Disable only if the provider rejects PKCE.
+    usePkce: false,
+    // Optional: extra query params on the authorize URL.
+    // authorizationParams: { prompt: 'consent' },
+    // Optional: provider's RFC 7009 token revocation endpoint, called on disconnect.
+    // revokeEndpoint: 'https://example.com/oauth/revoke',
+  },
+});
+```
+
+```ts src/application.config.ts
+import { defineApplication } from 'twenty-sdk/define';
+
+export default defineApplication({
+  universalIdentifier: '...',
+  displayName: 'Linear',
+  description: 'Connect Linear to Twenty.',
+  // OAuth client credentials live on the app registration (one OAuth app per
+  // Twenty server, configured by the admin) — not per-workspace. Declare them
+  // as serverVariables so the admin can fill them in once for all installs.
+  serverVariables: {
+    LINEAR_CLIENT_ID: {
+      description: 'OAuth client ID from your Linear OAuth application.',
+      isSecret: false,
+      isRequired: true,
+    },
+    LINEAR_CLIENT_SECRET: {
+      description: 'OAuth client secret from your Linear OAuth application.',
+      isSecret: true,
+      isRequired: true,
+    },
+  },
+});
+```
+
+Key points:
+
+- `name` is the unique identifier string used in `listConnections({ providerName })` (kebab-case, must match `^[a-z][a-z0-9-]*$`).
+- `displayName` shows in the per-app settings tab and in the AI tool list.
+- `clientIdVariable` / `clientSecretVariable` are **names**, not values — they must match keys declared in `defineApplication.serverVariables`. The actual `client_id` and `client_secret` are entered by the server admin through the app registration UI, never committed to your repo.
+- Use `serverVariables` (not `applicationVariables`) — OAuth credentials are server-wide and one OAuth app per Twenty server.
+- Until both `serverVariables` are filled in, the per-app settings tab shows a "needs server admin" hint and the "Add connection" button is disabled.
+- `type: 'oauth'` is the only supported value today. The discriminator is forward-compatible: future types (`'pat'`, `'api-key'`, ...) will add new sub-config blocks alongside `oauth`.
+
+The OAuth callback URL your provider needs to whitelist is:
+
+```
+https://<your-twenty-server>/apps/oauth/callback
+```
+
+</Accordion>
+
+<Accordion title="listConnections / getConnection" description="Use connections from a logic function">
+
+Inside a logic function handler, `listConnections({ providerName })` returns this app's `ConnectedAccount` rows for the given provider, with refreshed access tokens.
+
+```ts src/logic-functions/handlers/create-linear-issue-handler.ts
+import { listConnections } from 'twenty-sdk/logic-function';
+
+export const createLinearIssueHandler = async (input: {
+  teamId?: string;
+  title?: string;
+}) => {
+  if (!input.teamId || !input.title) {
+    return { success: false, error: 'teamId and title are required' };
+  }
+
+  const connections = await listConnections({ providerName: 'linear' });
+
+  // Workspace-shared credentials win when present; fall back to the first
+  // user-visibility one. For HTTP-route triggers you typically pick the
+  // request user's connection via event.userWorkspaceId instead.
+  const connection =
+    connections.find((c) => c.visibility === 'workspace') ?? connections[0];
+
+  if (!connection) {
+    return {
+      success: false,
+      error:
+        'Linear is not connected. Open the app settings and click "Add connection".',
+    };
+  }
+
+  // Use connection.accessToken to call the third-party API.
+  const response = await fetch('https://api.linear.app/graphql', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${connection.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query: `mutation { issueCreate(input: { teamId: "${input.teamId}", title: "${input.title}" }) { success } }`,
+    }),
+  });
+
+  return { success: response.ok };
+};
+```
+
+Each connection has:
+
+| Field             | Description                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------------- |
+| `id`              | Unique row id; pass to `getConnection(id)` to refetch a single one                                       |
+| `visibility`      | `'user'` (private to one workspace member) or `'workspace'` (shared with all members)                    |
+| `scopes`          | OAuth permissions granted by the upstream provider (distinct from `visibility` — those are unrelated)    |
+| `userWorkspaceId` | The owner's userWorkspace id — useful for picking "the request user's connection" in HTTP-route triggers |
+| `accessToken`     | Fresh OAuth access token (refreshed automatically if expired)                                            |
+| `name` / `handle` | The connection's display name (auto-derived at OAuth callback, user-renameable)                          |
+| `authFailedAt`    | Set when the most recent refresh failed; the user must reconnect                                         |
+
+Key points:
+
+- Pass `{ providerName }` to filter by provider; omit it to get all connections this app owns across all providers.
+- The server transparently refreshes the access token before returning. Your handler always sees a usable token (or `authFailedAt` set).
+- `getConnection(id)` is the single-row equivalent.
+
+</Accordion>
+
+<Accordion title="Per-user vs workspace-shared visibility" description="How users choose between private and shared credentials">
+
+When a user clicks "Add connection," they're prompted to pick a visibility:
+
+- **Just for me** — the credential is private to the connecting user. Any logic function called on their behalf (HTTP-route trigger with `isAuthRequired: true`) sees it; cron triggers and database events do not.
+- **Workspace shared** — any workspace member can use the credential. Cron / database triggers also see it, since they have no request user.
+
+Use the right one for each handler:
+
+```ts
+// HTTP-route trigger — prefer the request user's own connection.
+const conn =
+  connections.find((c) => c.userWorkspaceId === event.userWorkspaceId) ??
+  connections.find((c) => c.visibility === 'workspace');
+
+// Cron trigger — no request user; only shared credentials are sensible.
+const conn = connections.find((c) => c.visibility === 'workspace');
+```
+
+Multiple connections per (user, provider) are allowed, so the same user can hold "Personal Linear" and "Work Linear" side by side.
+
+</Accordion>
+
+<Accordion title="One-time provider setup" description="Register your OAuth app with the third-party service">
+
+For each connection provider, the server admin needs to register an OAuth app at the third party first.
+
+1. Go to the provider's developer settings (e.g. https://linear.app/settings/api/applications/new).
+2. Set the **Redirect URI** to `<SERVER_URL>/apps/oauth/callback`.
+3. Copy the generated **Client ID** and **Client Secret**.
+4. Open the installed app in Twenty as a server admin → set the values on the corresponding `serverVariables`.
+5. Workspace members can then add connections from the per-app **Connections** section.
+
+</Accordion>
+
+</AccordionGroup>
+</file>
+
+<file path="apps/logic/logic-functions.mdx">
+---
+title: Logic Functions
+description: Define server-side TypeScript functions with HTTP, cron, and database event triggers.
+icon: "bolt"
+---
+
+Logic functions are server-side TypeScript functions that run on the Twenty platform. They can be triggered by HTTP requests, cron schedules, or database events — and can also be exposed as tools for AI agents.
+
+<AccordionGroup>
+<Accordion title="defineLogicFunction" description="Define logic functions and their triggers">
+
+Each function file uses `defineLogicFunction()` to export a configuration with a handler and optional triggers.
+
+```ts src/logic-functions/createPostCard.logic-function.ts
+import { defineLogicFunction } from 'twenty-sdk/define';
+import type { RoutePayload } from 'twenty-sdk/logic-function';
+import { CoreApiClient } from 'twenty-client-sdk/core';
+
+const handler = async (params: RoutePayload) => {
+  const client = new CoreApiClient();
+  const body = (params.body ?? {}) as { name?: string };
+  const name = body.name ?? process.env.DEFAULT_RECIPIENT_NAME ?? 'Hello world';
+
+  const result = await client.mutation({
+    createPostCard: {
+      __args: { data: { name } },
+      id: true,
+      name: true,
+    },
+  });
+  return result;
+};
+
+export default defineLogicFunction({
+  universalIdentifier: 'e56d363b-0bdc-4d8a-a393-6f0d1c75bdcf',
+  name: 'create-new-post-card',
+  timeoutSeconds: 2,
+  handler,
+  httpRouteTriggerSettings: {
+    path: '/post-card/create',
+    httpMethod: 'POST',
+    isAuthRequired: true,
+  },
+  /*databaseEventTriggerSettings: {
+    eventName: 'people.created',
+  },*/
+  /*cronTriggerSettings: {
+    pattern: '0 0 1 1 *',
+  },*/
+});
+```
+
+Available trigger types:
+- **httpRoute**: Exposes your function on an HTTP path and method **under the `/s/` endpoint**:
+> e.g. `path: '/post-card/create'` is callable at `https://your-twenty-server.com/s/post-card/create`
+- **cron**: Runs your function on a schedule using a CRON expression.
+- **databaseEvent**: Runs on workspace object lifecycle events. When the event operation is `updated`, specific fields to listen to can be specified in the `updatedFields` array. If left undefined or empty, any update will trigger the function.
+> e.g. `person.updated`, `*.created`, `company.*`
+
+<Note>
+You can also manually execute a function using the CLI:
+
+```bash filename="Terminal"
+yarn twenty dev:function:exec -n create-new-post-card -p '{"key": "value"}'
+```
+
+```bash filename="Terminal"
+yarn twenty dev:function:exec -u e56d363b-0bdc-4d8a-a393-6f0d1c75bdcf
+```
+
+You can watch logs with:
+
+```bash filename="Terminal"
+yarn twenty dev:function:logs
+```
+</Note>
+
+#### Route trigger payload
+
+When a route trigger invokes your logic function, it receives a `RoutePayload` object that follows the
+[AWS HTTP API v2 format](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html).
+Import the `RoutePayload` type from `twenty-sdk/logic-function`:
+
+```ts
+import type { RoutePayload } from 'twenty-sdk/logic-function';
+
+const handler = async (event: RoutePayload) => {
+  const { headers, queryStringParameters, pathParameters, body } = event;
+  const { method, path } = event.requestContext.http;
+
+  return { message: 'Success' };
+};
+```
+
+The `RoutePayload` type has the following structure:
+
+  | Property | Type | Description | Example |
+  |----------|------|-------------|---------|
+  | `headers` | `Record<string, string \| undefined>` | HTTP headers (only those listed in `forwardedRequestHeaders`) | see section below |
+  | `queryStringParameters` | `Record<string, string \| undefined>` | Query string parameters (multiple values joined with commas)  | `/users?ids=1&ids=2&ids=3&name=Alice` -> `{ ids: '1,2,3', name: 'Alice' }`|
+  | `pathParameters` | `Record<string, string \| undefined>` | Path parameters extracted from the route pattern | `/users/:id`, `/users/123` -> `{ id: '123' }` |
+  | `body` | `object \| null` | Parsed request body (JSON) | `{ id: 1 }` -> `{ id: 1 }` |
+  | `rawBody` | `string \| undefined` | Original UTF-8 request body, before JSON parsing. Useful for verifying HMAC-style webhook signatures (e.g. GitHub's `X-Hub-Signature-256`, Stripe). `undefined` when the runtime did not preserve it. | |
+  | `isBase64Encoded` | `boolean` | Whether the body is base64 encoded | |
+  | `requestContext.http.method` | `string` | HTTP method (GET, POST, PUT, PATCH, DELETE) | |
+  | `requestContext.http.path` | `string` | Raw request path | |
+
+
+#### forwardedRequestHeaders
+
+By default, HTTP headers from incoming requests are **not** passed to your logic function for security reasons.
+To access specific headers, list them in the `forwardedRequestHeaders` array:
+
+```ts
+export default defineLogicFunction({
+  universalIdentifier: 'e56d363b-0bdc-4d8a-a393-6f0d1c75bdcf',
+  name: 'webhook-handler',
+  handler,
+  httpRouteTriggerSettings: {
+    path: '/webhook',
+    httpMethod: 'POST',
+    isAuthRequired: false,
+    forwardedRequestHeaders: ['x-webhook-signature', 'content-type'],
+  },
+});
+```
+
+In your handler, access the forwarded headers like this:
+
+```ts
+const handler = async (event: RoutePayload) => {
+  const signature = event.headers['x-webhook-signature'];
+  const contentType = event.headers['content-type'];
+
+  // Validate webhook signature...
+  return { received: true };
+};
+```
+
+<Note>
+Header names are normalized to lowercase. Access them using lowercase keys (e.g., `event.headers['content-type']`).
+</Note>
+
+#### Database event trigger payload
+
+When a database event trigger invokes your logic function, it receives one `DatabaseEventPayload` per changed record. The payload combines metadata about the source workspace and object with the record-level event.
+
+```ts
+import type {
+  DatabaseEventPayload,
+  ObjectRecordCreateEvent,
+  ObjectRecordDestroyEvent,
+  ObjectRecordUpdateEvent,
+} from 'twenty-sdk/logic-function';
+
+type Person = {
+  id: string;
+  emails?: { primaryEmail?: string };
+};
+```
+
+The payload includes:
+
+| Property | Description |
+|----------|-------------|
+| `name` | Event name, such as `person.updated`. |
+| `workspaceId` | Workspace where the event happened. |
+| `objectMetadata` | Metadata for the object that changed. |
+| `recordId` | Id of the changed record. |
+| `userId`, `userWorkspaceId`, `workspaceMemberId` | Actor fields when the event was caused by a workspace user. |
+| `properties` | Record data for the event, with `before`, `after`, `diff`, and `updatedFields` depending on the operation. |
+
+| Event | Record data |
+|-------|-------------|
+| `person.created` | `event.properties.after` |
+| `person.updated` | `event.properties.before`, `event.properties.after`, `event.properties.diff`, `event.properties.updatedFields` |
+| `person.destroyed` | `event.properties.before` |
+
+For soft deletes, `.deleted` follows the update-style shape because the record's `deletedAt` field changes.
+For permanent deletes, use `.destroyed`.
+
+<Note>
+`databaseEventTriggerSettings.updatedFields` filters which update events trigger the function.
+`event.properties.updatedFields` tells you which fields actually changed on the current event.
+</Note>
+
+Created event example:
+
+```ts
+type PersonCreatedEvent = DatabaseEventPayload<
+  ObjectRecordCreateEvent<Person>
+>;
+
+const handler = async (event: PersonCreatedEvent) => {
+  const person = event.properties.after;
+
+  return {
+    personId: event.recordId,
+    email: person.emails?.primaryEmail,
+  };
+};
+```
+
+Updated event example:
+
+```ts
+type PersonUpdatedEvent = DatabaseEventPayload<
+  ObjectRecordUpdateEvent<Person>
+>;
+
+const handler = async (event: PersonUpdatedEvent) => {
+  const { before, after, diff, updatedFields } = event.properties;
+
+  return {
+    personId: event.recordId,
+    updatedFields,
+    previousEmail: before.emails?.primaryEmail,
+    currentEmail: after.emails?.primaryEmail,
+    emailDiff: diff.emails,
+  };
+};
+```
+
+Trigger only on email updates:
+
+```ts
+export default defineLogicFunction({
+  ...,
+  databaseEventTriggerSettings: {
+    eventName: 'person.updated',
+    updatedFields: ['emails'],
+  },
+});
+```
+
+Destroyed event example:
+
+```ts
+type PersonDestroyedEvent = DatabaseEventPayload<
+  ObjectRecordDestroyEvent<Person>
+>;
+
+const handler = async (event: PersonDestroyedEvent) => {
+  const personBeforeDestroy = event.properties.before;
+
+  return {
+    personId: event.recordId,
+    email: personBeforeDestroy.emails?.primaryEmail,
+  };
+};
+```
+
+#### Exposing a function as an AI tool or workflow action
+
+Logic functions can be exposed on two surfaces, each with its own trigger:
+
+- **`toolTriggerSettings`** — makes the function discoverable by Twenty's AI features (chat, MCP, function calling). Uses standard JSON Schema, the format LLMs natively understand.
+- **`workflowActionTriggerSettings`** — makes the function appear as a step in the visual workflow builder. Uses Twenty's rich `InputSchema` so the builder can render proper field editors, variable pickers, and labels.
+
+A function can opt into one, the other, or both. They sit alongside `cronTriggerSettings`, `databaseEventTriggerSettings`, and `httpRouteTriggerSettings` — same pattern, same shape.
+
+```ts src/logic-functions/enrich-company.logic-function.ts
+import { defineLogicFunction } from 'twenty-sdk/define';
+import { CoreApiClient } from 'twenty-client-sdk/core';
+
+const handler = async (params: { companyName: string; domain?: string }) => {
+  const client = new CoreApiClient();
+
+  const result = await client.mutation({
+    createTask: {
+      __args: {
+        data: {
+          title: `Enrich data for ${params.companyName}`,
+          body: `Domain: ${params.domain ?? 'unknown'}`,
+        },
+      },
+      id: true,
+    },
+  });
+
+  return { taskId: result.createTask.id };
+};
+
+export default defineLogicFunction({
+  universalIdentifier: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+  name: 'enrich-company',
+  description: 'Enrich a company record with external data',
+  timeoutSeconds: 10,
+  handler,
+  toolTriggerSettings: {},
+});
+```
+
+Key points:
+
+- A function can mix surfaces — declare both `toolTriggerSettings` and `workflowActionTriggerSettings` to expose it in chat AND in the workflow builder.
+- `toolTriggerSettings.inputSchema` and `workflowActionTriggerSettings.inputSchema` are both optional. When omitted, the manifest builder infers them from the handler source code (JSON Schema for the AI tool, Twenty's `InputSchema` for the workflow action). Provide one explicitly when you want richer typing — for example, with `FieldMetadataType`-aware fields like `CURRENCY` or `RELATION` for the workflow builder, or with `description` fields the AI agent can read:
+
+```ts
+export default defineLogicFunction({
+  ...,
+  toolTriggerSettings: {
+    inputSchema: {
+      type: 'object',
+      properties: {
+        companyName: {
+          type: 'string',
+          description: 'The name of the company to enrich',
+        },
+        domain: {
+          type: 'string',
+          description: 'The company website domain (optional)',
+        },
+      },
+      required: ['companyName'],
+    },
+  },
+});
+```
+
+<Note>
+**Write a good `description`.** AI agents rely on the function's `description` field to decide when to use the tool. Be specific about what the tool does and when it should be called.
+</Note>
+
+</Accordion>
+</AccordionGroup>
+
+<Note>
+**Install hooks** — pre-install and post-install handlers — share this runtime but are declared with their own define functions and don't take trigger settings. See [Install Hooks](/developers/extend/apps/config/install-hooks) for `definePreInstallLogicFunction` and `definePostInstallLogicFunction`.
+</Note>
+
+## Typed API clients (twenty-client-sdk)
+
+The `twenty-client-sdk` package provides two typed GraphQL clients for interacting with the Twenty API from your logic functions and front components.
+
+| Client | Import | Endpoint | Generated? |
+|--------|--------|----------|------------|
+| `CoreApiClient` | `twenty-client-sdk/core` | `/graphql` — workspace data (records, objects) | Yes, at dev/build time |
+| `MetadataApiClient` | `twenty-client-sdk/metadata` | `/metadata` — workspace config, file uploads | No, ships pre-built |
+
+<AccordionGroup>
+<Accordion title="CoreApiClient" description="Query and mutate workspace data (records, objects)">
+
+`CoreApiClient` is the main client for querying and mutating workspace data. It is **generated from your workspace schema** during `yarn twenty dev` or `yarn twenty dev:build`, so it is fully typed to match your objects and fields.
+
+```ts
+import { CoreApiClient } from 'twenty-client-sdk/core';
+
+const client = new CoreApiClient();
+
+// Query records
+const { companies } = await client.query({
+  companies: {
+    edges: {
+      node: {
+        id: true,
+        name: true,
+        domainName: {
+          primaryLinkLabel: true,
+          primaryLinkUrl: true,
+        },
+      },
+    },
+  },
+});
+
+// Create a record
+const { createCompany } = await client.mutation({
+  createCompany: {
+    __args: {
+      data: {
+        name: 'Acme Corp',
+      },
+    },
+    id: true,
+    name: true,
+  },
+});
+```
+
+The client uses a selection-set syntax: pass `true` to include a field, use `__args` for arguments, and nest objects for relations. You get full autocompletion and type checking based on your workspace schema.
+
+<Note>
+**CoreApiClient is generated at dev/build time.** If you use it without running `yarn twenty dev` or `yarn twenty dev:build` first, it throws an error. The generation happens automatically — the CLI introspects your workspace's GraphQL schema and generates a typed client using `@genql/cli`.
+</Note>
+
+#### Using CoreSchema for type annotations
+
+`CoreSchema` provides TypeScript types matching your workspace objects — useful for typing component state or function parameters:
+
+```ts
+import { CoreApiClient, CoreSchema } from 'twenty-client-sdk/core';
+import { useState } from 'react';
+
+const [company, setCompany] = useState<
+  Pick<CoreSchema.Company, 'id' | 'name'> | undefined
+>(undefined);
+
+const client = new CoreApiClient();
+const result = await client.query({
+  company: {
+    __args: { filter: { position: { eq: 1 } } },
+    id: true,
+    name: true,
+  },
+});
+setCompany(result.company);
+```
+
+</Accordion>
+<Accordion title="MetadataApiClient" description="Workspace config, applications, and file uploads">
+
+`MetadataApiClient` ships pre-built with the SDK (no generation required). It queries the `/metadata` endpoint for workspace configuration, applications, and file uploads.
+
+```ts
+import { MetadataApiClient } from 'twenty-client-sdk/metadata';
+
+const metadataClient = new MetadataApiClient();
+
+// List first 10 objects in the workspace
+const { objects } = await metadataClient.query({
+  objects: {
+    edges: {
+      node: {
+        id: true,
+        nameSingular: true,
+        namePlural: true,
+        labelSingular: true,
+        isCustom: true,
+      },
+    },
+    __args: {
+      filter: {},
+      paging: { first: 10 },
+    },
+  },
+});
+```
+
+#### Uploading files
+
+`MetadataApiClient` includes an `uploadFile` method for attaching files to file-type fields:
+
+```ts
+import { MetadataApiClient } from 'twenty-client-sdk/metadata';
+import * as fs from 'fs';
+
+const metadataClient = new MetadataApiClient();
+
+const fileBuffer = fs.readFileSync('./invoice.pdf');
+
+const uploadedFile = await metadataClient.uploadFile(
+  fileBuffer,                                         // file contents as a Buffer
+  'invoice.pdf',                                      // filename
+  'application/pdf',                                  // MIME type
+  '58a0a314-d7ea-4865-9850-7fb84e72f30b',            // field universalIdentifier
+);
+
+console.log(uploadedFile);
+// { id: '...', path: '...', size: 12345, createdAt: '...', url: 'https://...' }
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `fileBuffer` | `Buffer` | The raw file contents |
+| `filename` | `string` | The name of the file (used for storage and display) |
+| `contentType` | `string` | MIME type (defaults to `application/octet-stream` if omitted) |
+| `fieldMetadataUniversalIdentifier` | `string` | The `universalIdentifier` of the file-type field on your object |
+
+Key points:
+- Uses the field's `universalIdentifier` (not its workspace-specific ID), so your upload code works across any workspace where your app is installed.
+- The returned `url` is a signed URL you can use to access the uploaded file.
+
+</Accordion>
+</AccordionGroup>
+
+
+<Note>
+  When your code runs on Twenty (logic functions or front components), the platform injects credentials as environment variables:
+
+  - `TWENTY_API_URL` — Base URL of the Twenty API
+  - `TWENTY_APP_ACCESS_TOKEN` — Short-lived key scoped to your application's default function role
+
+  You do **not** need to pass these to the clients — they read from `process.env` automatically. The API key's permissions are determined by the role declared with `defineApplicationRole()` (or referenced via `defaultRoleUniversalIdentifier` in `application-config.ts`).
+</Note>
+</file>
+
+<file path="apps/logic/overview.mdx">
+---
+title: Overview
+description: Server-side TypeScript that runs inside Twenty — triggered by HTTP routes, cron schedules, database events, AI tools, or workflow actions.
+icon: "bolt"
+---
+
+A Twenty app's **logic layer** is the code that *runs* — server-side TypeScript handlers reacting to HTTP requests, cron schedules, and record changes; AI skills and agents that live inside the workspace; and OAuth connections that let your functions act on a user's behalf in third-party services.
+
+```text
+            ┌─ HTTP route      ──┐
+            │  Cron schedule     │
+            │  Database event    │      ┌────────────────────┐
+  triggers ─┤  AI tool call      ├─────▶│ Logic function     │
+            │  Workflow action   │      │ (your handler)     │
+            │  Manual exec       │      └────────────────────┘
+            └────────────────────┘                │
+                                                  ▼
+                                  ┌────────────────────────────┐
+                                  │ Twenty API (records)       │
+                                  │ Third-party API            │
+                                  │   (via Connection token)   │
+                                  └────────────────────────────┘
+```
+
+## In this section
+
+<CardGroup cols={2}>
+  <Card title="Logic Functions" icon="bolt" href="/developers/extend/apps/logic/logic-functions">
+    The core building block — trigger types, payloads, and the typed API client.
+  </Card>
+  <Card title="Skills & Agents" icon="robot" href="/developers/extend/apps/logic/skills-and-agents">
+    Reusable AI agent instructions and assistants with custom system prompts.
+  </Card>
+  <Card title="Connections" icon="plug" href="/developers/extend/apps/logic/connections">
+    OAuth credentials your app holds for third-party services — Linear, GitHub, Slack, and more.
+  </Card>
+</CardGroup>
+
+## Trigger types at a glance
+
+A logic function picks one or more triggers — every entry below is a separate field on `defineLogicFunction()`:
+
+| Trigger | When it runs | Setting |
+|---------|--------------|---------|
+| **HTTP route** | A request hits your `/s/<path>` endpoint | `httpRouteTriggerSettings` |
+| **Cron** | A CRON expression matches | `cronTriggerSettings` |
+| **Database event** | A workspace record is created, updated, or deleted | `databaseEventTriggerSettings` |
+| **AI tool** | A Twenty AI feature decides to call your function | `toolTriggerSettings` |
+| **Workflow action** | A workflow step invokes your function | `workflowActionTriggerSettings` |
+
+Functions run sandboxed in isolated Node.js processes and access the workspace through a typed API client scoped to the role declared on [`defineApplication()`](/developers/extend/apps/config/application).
+
+<Note>
+**Install-time hooks** — code that runs before or after the install — share this runtime but use their own define functions and live under [Config → Install Hooks](/developers/extend/apps/config/install-hooks).
+</Note>
+</file>
+
+<file path="apps/logic/skills-and-agents.mdx">
+---
+title: Skills & Agents
+description: Define AI skills and agents for your app.
+icon: "robot"
+---
+
+<Warning>
+  Skills and agents are currently in alpha. The feature works but is still evolving.
+</Warning>
+
+Apps can define AI capabilities that live inside the workspace — reusable skill instructions and agents with custom system prompts.
+
+<AccordionGroup>
+<Accordion title="defineSkill" description="Define AI agent skills">
+
+Skills define reusable instructions and capabilities that AI agents can use within your workspace. Use `defineSkill()` to define skills with built-in validation:
+
+```ts src/skills/example-skill.ts
+import { defineSkill } from 'twenty-sdk/define';
+
+export default defineSkill({
+  universalIdentifier: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  name: 'sales-outreach',
+  label: 'Sales Outreach',
+  description: 'Guides the AI agent through a structured sales outreach process',
+  icon: 'IconBrain',
+  content: `You are a sales outreach assistant. When reaching out to a prospect:
+1. Research the company and recent news
+2. Identify the prospect's role and likely pain points
+3. Draft a personalized message referencing specific details
+4. Keep the tone professional but conversational`,
+});
+```
+
+Key points:
+- `name` is a unique identifier string for the skill (kebab-case recommended).
+- `label` is the human-readable display name shown in the UI.
+- `content` contains the skill instructions — this is the text the AI agent uses.
+- `icon` (optional) sets the icon displayed in the UI.
+- `description` (optional) provides additional context about the skill's purpose.
+
+</Accordion>
+<Accordion title="defineAgent" description="Define AI agents with custom prompts">
+
+Agents are AI assistants that live inside your workspace. Use `defineAgent()` to create agents with a custom system prompt:
+
+```ts src/agents/example-agent.ts
+import { defineAgent } from 'twenty-sdk/define';
+
+export default defineAgent({
+  universalIdentifier: 'b3c4d5e6-f7a8-9012-bcde-f34567890123',
+  name: 'sales-assistant',
+  label: 'Sales Assistant',
+  description: 'Helps the sales team draft outreach emails and research prospects',
+  icon: 'IconRobot',
+  prompt: 'You are a helpful sales assistant. Help users with their questions and tasks.',
+});
+```
+
+Key points:
+- `name` is the unique identifier string for the agent (kebab-case recommended).
+- `label` is the display name shown in the UI.
+- `prompt` is the system prompt that defines the agent's behavior.
+- `description` (optional) provides context about what the agent does.
+- `icon` (optional) sets the icon displayed in the UI.
+- `modelId` (optional) overrides the default AI model used by the agent.
+
+</Accordion>
+</AccordionGroup>
+</file>
+
+<file path="apps/operations/cli.mdx">
+---
+title: CLI
+description: yarn twenty commands for executing functions, streaming logs, managing app installations, and switching remotes.
+icon: "terminal"
+---
+
+Beyond `dev`, `dev:build`, `dev:add`, and `dev:typecheck`, the `yarn twenty` CLI provides commands for executing functions, viewing logs, and managing app installations.
+
+## Executing functions (`yarn twenty dev:function:exec`)
+
+Run a logic function manually without triggering it via HTTP, cron, or database event:
+
+```bash filename="Terminal"
+# Execute by function name
+yarn twenty dev:function:exec -n create-new-post-card
+
+# Execute by universalIdentifier
+yarn twenty dev:function:exec -u e56d363b-0bdc-4d8a-a393-6f0d1c75bdcf
+
+# Pass a JSON payload
+yarn twenty dev:function:exec -n create-new-post-card -p '{"name": "Hello"}'
+
+# Execute the post-install function
+yarn twenty dev:function:exec --postInstall
+```
+
+## Viewing function logs (`yarn twenty dev:function:logs`)
+
+Stream execution logs for your app's logic functions:
+
+```bash filename="Terminal"
+# Stream all function logs
+yarn twenty dev:function:logs
+
+# Filter by function name
+yarn twenty dev:function:logs -n create-new-post-card
+
+# Filter by universalIdentifier
+yarn twenty dev:function:logs -u e56d363b-0bdc-4d8a-a393-6f0d1c75bdcf
+```
+
+<Note>
+This is different from `yarn twenty docker:logs`, which shows the Docker container logs. `yarn twenty dev:function:logs` shows your app's function execution logs from the Twenty server.
+</Note>
+
+## Uninstalling an app (`yarn twenty app:uninstall`)
+
+Remove your app from the active workspace:
+
+```bash filename="Terminal"
+yarn twenty app:uninstall
+
+# Skip the confirmation prompt
+yarn twenty app:uninstall --yes
+```
+
+## Managing remotes
+
+A **remote** is a Twenty server that your app connects to. During setup, the scaffolder creates one for you automatically. You can add more remotes or switch between them at any time.
+
+```bash filename="Terminal"
+# Add a new remote (opens a browser for OAuth login)
+yarn twenty remote:add
+
+# Connect to a local Twenty server (auto-detects port 2020 or 3000)
+yarn twenty remote:add --local
+
+# Add a remote non-interactively (useful for CI)
+yarn twenty remote:add --url https://your-twenty-server.com --api-key $TWENTY_API_KEY --as my-remote
+
+# List all configured remotes
+yarn twenty remote:list
+
+# Set the active remote
+yarn twenty remote:use <name>
+```
+
+Your credentials are stored in `~/.twenty/config.json`.
+</file>
+
+<file path="apps/operations/overview.mdx">
+---
+title: Overview
+description: Build, test, and ship your app — CLI commands, integration tests, CI, and publishing to a server or to npm.
+icon: "rocket"
+---
+
+The **operations layer** is everything you do *to* your app rather than *with* it: invoking CLI commands, running integration tests against a real Twenty server, configuring CI, and shipping releases — either as a tarball deployed to a single server or as an npm package listed in the marketplace.
+
+```text
+   develop ─▶ test ─▶ build ─▶ deploy / publish
+   ───────    ────    ─────    ─────────────────
+   yarn       yarn    yarn     yarn twenty app:publish --private  (tarball → one server)
+   twenty     test    twenty
+   dev                dev:build    yarn twenty app:publish         (npm → marketplace)
+```
+
+## In this section
+
+<CardGroup cols={2}>
+  <Card title="CLI" icon="terminal" href="/developers/extend/apps/operations/cli">
+    `yarn twenty` reference — exec, logs, uninstall, remotes.
+  </Card>
+  <Card title="Testing" icon="flask" href="/developers/extend/apps/operations/testing">
+    Vitest setup, integration tests, type checking, CI workflow.
+  </Card>
+  <Card title="Publishing" icon="upload" href="/developers/extend/apps/operations/publishing">
+    Build, deploy a tarball, publish to npm, install.
+  </Card>
+</CardGroup>
+</file>
+
+<file path="apps/operations/publishing.mdx">
+---
+title: Publishing
+icon: "upload"
+description: Distribute your Twenty app to the marketplace or deploy it internally.
+---
+
+## Overview
+
+Once your app is [built and tested locally](/developers/extend/apps/getting-started/concepts), you have two paths for distributing it:
+
+- **Deploy a tarball** — upload your app directly to a specific Twenty server for internal or private use.
+- **Publish to npm** — list your app in the Twenty marketplace for any workspace to discover and install.
+
+Both paths start from the same **build** step.
+
+## Building your app
+
+Run the build command to compile your app and generate a distribution-ready `manifest.json`:
+
+```bash filename="Terminal"
+yarn twenty dev:build
+```
+
+This compiles TypeScript sources, transpiles logic functions and front components, and writes everything to `.twenty/output/`. Add `--tarball` to also produce a `.tgz` package for manual distribution or the publish command.
+
+## Deploying to a server (tarball)
+
+For apps you don't want publicly available — proprietary tools, enterprise-only integrations, or experimental builds — you can deploy a tarball directly to a Twenty server.
+
+### Prerequisites
+
+Before deploying, you need a configured remote pointing to the target server. Remotes store the server URL and authentication credentials locally in `~/.twenty/config.json`.
+
+Add a remote:
+
+```bash filename="Terminal"
+yarn twenty remote:add --url https://your-twenty-server.com --as production
+```
+
+### Deploying
+
+Build and upload your app to the server in one step:
+
+```bash filename="Terminal"
+yarn twenty app:publish --private
+# To deploy to a specific remote:
+# yarn twenty app:publish --private --remote production
+```
+
+### Sharing a deployed app
+
+<Warning>
+Sharing private (tarball) apps across workspaces is an **Enterprise** feature. The **Distribution** tab will show an upgrade prompt instead of the share controls until your workspace has a valid Enterprise key. See [Settings > Admin Panel > Enterprise](/settings/admin-panel#enterprise) to activate it.
+</Warning>
+
+Tarball apps are not listed in the public marketplace, so other workspaces on the same server won't discover them by browsing. Once your workspace is on the Enterprise plan, you can share a deployed app like this:
+
+1. Go to **Settings > Applications > Registrations** and open your app
+2. In the **Distribution** tab, click **Copy share link**
+3. Share this link with users on other workspaces — it takes them directly to the app's install page
+
+The share link uses the server's base URL (without any workspace subdomain) so it works for any workspace on the server.
+
+### Version management
+
+When updating an already deployed tarball app, the server requires the `version` in `package.json` to be **strictly higher** (per [semver](https://semver.org) ordering) than the currently deployed version. Re-deploying the same version, or pushing a lower one, is rejected before the tarball is stored — you'll see a `VERSION_ALREADY_EXISTS` error from the CLI.
+
+To release an update:
+
+1. Bump the `version` field in your `package.json` (e.g. `1.2.3` → `1.2.4`, `1.3.0`, or `2.0.0`)
+2. Run `yarn twenty app:publish --private` (or `yarn twenty app:publish --private --remote production`)
+3. Workspaces that have the app installed will see the upgrade available in their settings
+
+<Note>
+Pre-release tags work as expected: bumping `1.0.0-rc.1` → `1.0.0-rc.2` is allowed, and a final release like `1.0.0` is correctly recognized as higher than `1.0.0-rc.5`. The version in `package.json` must itself be a valid semver string.
+</Note>
+
+{/* TODO: add screenshot of the Upgrade button */}
+
+### Server version compatibility
+
+If your app uses a feature introduced in a specific Twenty server version (for example, OAuth providers added in v2.3.0), you should declare the minimum server version your app requires using the `engines.twenty` field in `package.json`:
+
+```json filename="package.json"
+{
+  "name": "twenty-my-app",
+  "version": "1.0.0",
+  "engines": {
+    "node": "^24.5.0",
+    "twenty": ">=2.3.0"
+  }
+}
+```
+
+The value is a standard [semver range](https://github.com/npm/node-semver#ranges). Common patterns:
+
+| Range | Meaning |
+|-------|---------|
+| `>=2.3.0` | Any server from 2.3.0 onward |
+| `>=2.3.0 <3.0.0` | 2.3.0 or later, but below the next major |
+| `^2.3.0` | Same as `>=2.3.0 <3.0.0` |
+
+**What happens at deploy and install time:**
+
+- If `engines.twenty` is set and the target server's version does not satisfy the range, the deploy (tarball upload) or install is rejected with a `SERVER_VERSION_INCOMPATIBLE` error and a message indicating both the required range and the actual server version.
+- If `engines.twenty` is **not set**, the app is accepted on any server version (backward-compatible with existing apps).
+- If the server has no `APP_VERSION` configured, the check is skipped.
+
+<Note>
+The server is the authoritative check — it validates `engines.twenty` on both tarball upload and workspace install. If you deploy a tarball out-of-band or install from the marketplace, the server still enforces compatibility.
+</Note>
+
+## Automated CI/CD (scaffolded workflows)
+
+Apps generated with `create-twenty-app` ship with two GitHub Actions workflows out of the box, under `.github/workflows/`. They are ready to run as soon as you push the repo to GitHub — no extra setup is needed for CI, and CD only requires a single secret.
+
+### CI — `ci.yml`
+
+Runs integration tests on every push to `main` and every pull request.
+
+**What it does:**
+
+1. Checks out your app's source.
+2. Spawns an isolated Twenty test instance using the `twentyhq/twenty/.github/actions/spawn-twenty-app-dev-test@main` composite action (the CI equivalent of `yarn twenty docker:start --test`).
+3. Enables Corepack, sets up Node.js from your `.nvmrc`, and installs dependencies with `yarn install --immutable`.
+4. Runs `yarn test`, passing `TWENTY_API_URL` and `TWENTY_API_KEY` from the spawned instance so your tests can talk to a real server.
+
+**Config knobs:**
+
+- `TWENTY_VERSION` (env, defaults to `latest`) — pin the Twenty server version used in CI by editing this in `ci.yml`.
+- Concurrency is grouped by `github.ref` and cancels in-progress runs on new pushes.
+
+No secrets are required — the test instance is ephemeral and lives only for the duration of the job.
+
+### CD — `cd.yml`
+
+Deploys your app to a configured Twenty server on every push to `main`, and optionally from a pull request when the `deploy` label is applied.
+
+**What it does:**
+
+1. Checks out the PR head (for labeled PRs) or the pushed commit.
+2. Runs `twentyhq/twenty/.github/actions/deploy-twenty-app@main` — the CI equivalent of `yarn twenty app:publish --private`.
+3. Runs `twentyhq/twenty/.github/actions/install-twenty-app@main` so the newly deployed version is installed into the target workspace.
+
+**Required configuration:**
+
+| Setting | Where | Purpose |
+|---------|-------|---------|
+| `TWENTY_DEPLOY_URL` | `env` in `cd.yml` (defaults to `http://localhost:3000`) | The Twenty server to deploy to. Change this to your real server URL before first use. |
+| `TWENTY_DEPLOY_API_KEY` | GitHub repo **Settings → Secrets and variables → Actions** | API key with deploy permission on the target server. |
+
+<Note>
+The default `TWENTY_DEPLOY_URL` of `http://localhost:3000` is a placeholder — it will not reach anything from a GitHub-hosted runner. Update it to your server's public URL (or use a self-hosted runner with network access) before enabling CD.
+</Note>
+
+**Triggering a preview deploy from a PR:**
+
+Add the `deploy` label to a pull request. The `if:` guard in `cd.yml` will run the job for that PR using the PR's head commit, letting you validate a change on the target server before merging.
+
+### Pinning the reusable actions
+
+Both workflows reference reusable actions at `@main`, so action updates in the `twentyhq/twenty` repo are picked up automatically. If you want deterministic builds, replace `@main` with a commit SHA or release tag on each `uses:` line.
+
+## Publishing to npm
+
+Publishing to npm makes your app discoverable in the Twenty marketplace. Any Twenty workspace can browse, install, and upgrade marketplace apps directly from the UI.
+
+### Requirements
+
+- An [npm](https://www.npmjs.com) account
+- The `twenty-app` keyword in your `package.json` `keywords` array (add it manually — it is not included by default in the `create-twenty-app` template)
+
+```json filename="package.json"
+{
+  "name": "twenty-app-postcard-sender",
+  "version": "1.0.0",
+  "keywords": ["twenty-app"]
+}
+```
+
+### Marketplace metadata
+
+The `defineApplication()` config supports optional fields that control how your app appears in the marketplace. Use `logoUrl` and `screenshots` to reference images from the `public/` folder:
+
+```ts src/application-config.ts
+export default defineApplication({
+  universalIdentifier: '...',
+  displayName: 'My App',
+  description: 'A great app',
+  logoUrl: 'public/logo.png',
+  screenshots: [
+    'public/screenshot-1.png',
+    'public/screenshot-2.png',
+  ],
+});
+```
+
+See the [defineApplication accordion](/developers/extend/apps/config/application#marketplace-metadata) in the Building Apps page for the full list of marketplace fields (`author`, `category`, `aboutDescription`, `websiteUrl`, `termsUrl`, etc.).
+
+#### Recommended screenshot dimensions
+
+The marketplace renders `screenshots` in a fixed `8:5` container (for example, `1600×1000 px`).
+
+<Note>
+Screenshots of any aspect ratio are displayed in full and are never cropped, but anything significantly taller or narrower than `8:5` will show empty bands on the sides.
+</Note>
+
+### Publish
+
+```bash filename="Terminal"
+yarn twenty app:publish
+```
+
+To publish under a specific dist-tag (e.g., `beta` or `next`):
+
+```bash filename="Terminal"
+yarn twenty app:publish --tag beta
+```
+
+### How marketplace discovery works
+
+The Twenty server syncs its marketplace catalog from the npm registry **every hour**.
+
+You can trigger the sync immediately instead of waiting:
+
+```bash filename="Terminal"
+yarn twenty dev:catalog-sync
+# To target a specific remote:
+# yarn twenty dev:catalog-sync --remote production
+```
+
+The metadata shown in the marketplace comes from your `defineApplication()` config — fields like `displayName`, `description`, `author`, `category`, `logoUrl`, `screenshots`, `aboutDescription`, `websiteUrl`, and `termsUrl`.
+
+<Note>
+If your app does not define an `aboutDescription` in `defineApplication()`, the marketplace will automatically use your package's `README.md` from npm as the about page content. This means you can maintain a single README for both npm and the Twenty marketplace. If you want a different description in the marketplace, explicitly set `aboutDescription`.
+</Note>
+
+### CI publishing
+
+Use this GitHub Actions workflow to publish automatically on every release (uses [OIDC](https://docs.npmjs.com/trusted-publishers)):
+
+```yaml filename=".github/workflows/publish.yml"
+name: Publish
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - run: yarn install --immutable
+      - run: npx twenty dev:build
+      - run: npm publish --provenance --access public
+        working-directory: .twenty/output
+```
+
+For other CI systems (GitLab CI, CircleCI, etc.), the same three commands apply: `yarn install`, `yarn twenty dev:build`, then `npm publish` from `.twenty/output`.
+
+<Note>
+**npm provenance** is optional but recommended. Publishing with `--provenance` adds a trust badge to your npm listing, letting users verify the package was built from a specific commit in a public CI pipeline. See the [npm provenance docs](https://docs.npmjs.com/generating-provenance-statements) for setup instructions.
+</Note>
+
+## Installing apps
+
+Once an app is published (npm) or deployed (tarball), workspaces can install it through the UI.
+
+Go to the **Settings > Applications** page in Twenty, where both marketplace and tarball-deployed apps can be browsed and installed.
+
+{/* TODO: add screenshot of the UI when the app is registered */}
+
+You can also install apps from the command line:
+
+```bash filename="Terminal"
+yarn twenty app:install
+```
+
+<Note>
+The server enforces semver versioning on install, mirroring the rules on deploy:
+
+- Installing the same version that is already installed in your workspace is rejected with an `APP_ALREADY_INSTALLED` error.
+- Installing a lower version than the one currently installed is rejected with a `CANNOT_DOWNGRADE_APPLICATION` error.
+
+To install a newer version, deploy or publish it first, then re-run `yarn twenty app:install`.
+</Note>
+</file>
+
+<file path="apps/operations/testing.mdx">
+---
+title: Testing
+description: Vitest setup, integration tests against a real Twenty server, type checking, and CI with GitHub Actions.
+icon: "flask"
+---
+
+The SDK provides programmatic APIs that let you build, deploy, install, and uninstall your app from test code. Combined with [Vitest](https://vitest.dev/) and the typed API clients, you can write integration tests that verify your app works end-to-end against a real Twenty server.
+
+## Using npm packages
+
+You can install and use any npm package in your app. Both logic functions and front components are bundled with [esbuild](https://esbuild.github.io/), which inlines all dependencies into the output — no `node_modules` are needed at runtime.
+
+### Installing a package
+
+```bash filename="Terminal"
+yarn add axios
+```
+
+Then import it in your code:
+
+```ts src/logic-functions/fetch-data.ts
+import { defineLogicFunction } from 'twenty-sdk/define';
+import axios from 'axios';
+
+const handler = async (): Promise<any> => {
+  const { data } = await axios.get('https://api.example.com/data');
+
+  return { data };
+};
+
+export default defineLogicFunction({
+  universalIdentifier: '...',
+  name: 'fetch-data',
+  description: 'Fetches data from an external API',
+  timeoutSeconds: 10,
+  handler,
+});
+```
+
+The same works for front components:
+
+```tsx src/front-components/chart.tsx
+import { defineFrontComponent } from 'twenty-sdk/define';
+import { format } from 'date-fns';
+
+const DateWidget = () => {
+  return <p>Today is {format(new Date(), 'MMMM do, yyyy')}</p>;
+};
+
+export default defineFrontComponent({
+  universalIdentifier: '...',
+  name: 'date-widget',
+  component: DateWidget,
+});
+```
+
+### How bundling works
+
+The build step uses esbuild to produce a single self-contained file per logic function and per front component. All imported packages are inlined into the bundle.
+
+**Logic functions** run in a Node.js environment. Node built-in modules (`fs`, `path`, `crypto`, `http`, etc.) are available and do not need to be installed.
+
+**Front components** run in a Web Worker. Node built-in modules are **not** available — only browser APIs and npm packages that work in a browser environment.
+
+Both environments have `twenty-client-sdk/core` and `twenty-client-sdk/metadata` available as pre-provided modules — these are not bundled but resolved at runtime by the server.
+
+## Setup
+
+The scaffolded app already includes Vitest. If you set it up manually, install the dependencies:
+
+```bash filename="Terminal"
+yarn add -D vitest vite-tsconfig-paths
+```
+
+Create a `vitest.config.ts` at the root of your app:
+
+```ts vitest.config.ts
+import tsconfigPaths from 'vite-tsconfig-paths';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  plugins: [
+    tsconfigPaths({
+      projects: ['tsconfig.spec.json'],
+      ignoreConfigErrors: true,
+    }),
+  ],
+  test: {
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
+    include: ['src/**/*.integration-test.ts'],
+    setupFiles: ['src/__tests__/setup-test.ts'],
+    env: {
+      TWENTY_API_URL: 'http://localhost:2020',
+      TWENTY_API_KEY: 'your-api-key',
+    },
+  },
+});
+```
+
+Create a setup file that verifies the server is reachable before tests run:
+
+```ts src/__tests__/setup-test.ts
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { beforeAll } from 'vitest';
+
+const TWENTY_API_URL = process.env.TWENTY_API_URL ?? 'http://localhost:2020';
+const TEST_CONFIG_DIR = path.join(os.tmpdir(), '.twenty-sdk-test');
+
+beforeAll(async () => {
+  // Verify the server is running
+  const response = await fetch(`${TWENTY_API_URL}/healthz`);
+
+  if (!response.ok) {
+    throw new Error(
+      `Twenty server is not reachable at ${TWENTY_API_URL}. ` +
+        'Start the server before running integration tests.',
+    );
+  }
+
+  // Write a temporary config for the SDK
+  fs.mkdirSync(TEST_CONFIG_DIR, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(TEST_CONFIG_DIR, 'config.json'),
+    JSON.stringify({
+      remotes: {
+        local: {
+          apiUrl: process.env.TWENTY_API_URL,
+          apiKey: process.env.TWENTY_API_KEY,
+        },
+      },
+      defaultRemote: 'local',
+    }, null, 2),
+  );
+});
+```
+
+## Programmatic SDK APIs
+
+The `twenty-sdk/cli` subpath exports functions you can call directly from test code:
+
+| Function | Description |
+|----------|-------------|
+| `appBuild` | Build the app and optionally pack a tarball |
+| `appDeploy` | Upload a tarball to the server |
+| `appInstall` | Install the app on the active workspace |
+| `appUninstall` | Uninstall the app from the active workspace |
+
+Each function returns a result object with `success: boolean` and either `data` or `error`.
+
+## Writing an integration test
+
+Here is a full example that builds, deploys, and installs the app, then verifies it appears in the workspace:
+
+```ts src/__tests__/app-install.integration-test.ts
+import { APPLICATION_UNIVERSAL_IDENTIFIER } from 'src/application-config';
+import { appBuild, appDeploy, appInstall, appUninstall } from 'twenty-sdk/cli';
+import { MetadataApiClient } from 'twenty-client-sdk/metadata';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+const APP_PATH = process.cwd();
+
+describe('App installation', () => {
+  beforeAll(async () => {
+    const buildResult = await appBuild({
+      appPath: APP_PATH,
+      tarball: true,
+      onProgress: (message: string) => console.log(`[build] ${message}`),
+    });
+
+    if (!buildResult.success) {
+      throw new Error(`Build failed: ${buildResult.error?.message}`);
+    }
+
+    const deployResult = await appDeploy({
+      tarballPath: buildResult.data.tarballPath!,
+      onProgress: (message: string) => console.log(`[deploy] ${message}`),
+    });
+
+    if (!deployResult.success) {
+      throw new Error(`Deploy failed: ${deployResult.error?.message}`);
+    }
+
+    const installResult = await appInstall({ appPath: APP_PATH });
+
+    if (!installResult.success) {
+      throw new Error(`Install failed: ${installResult.error?.message}`);
+    }
+  });
+
+  afterAll(async () => {
+    await appUninstall({ appPath: APP_PATH });
+  });
+
+  it('should find the installed app in the workspace', async () => {
+    const metadataClient = new MetadataApiClient();
+
+    const result = await metadataClient.query({
+      findManyApplications: {
+        id: true,
+        name: true,
+        universalIdentifier: true,
+      },
+    });
+
+    const installedApp = result.findManyApplications.find(
+      (app: { universalIdentifier: string }) =>
+        app.universalIdentifier === APPLICATION_UNIVERSAL_IDENTIFIER,
+    );
+
+    expect(installedApp).toBeDefined();
+  });
+});
+```
+
+## Running tests
+
+Make sure your local Twenty server is running, then:
+
+```bash filename="Terminal"
+yarn test
+```
+
+Or in watch mode during development:
+
+```bash filename="Terminal"
+yarn test:watch
+```
+
+## Type checking
+
+You can also run type checking on your app without running tests:
+
+```bash filename="Terminal"
+yarn twenty dev:typecheck
+```
+
+This runs `tsc --noEmit` and reports any type errors.
+
+## CI with GitHub Actions
+
+The scaffolder generates a ready-to-use GitHub Actions workflow at `.github/workflows/ci.yml`. It runs your integration tests automatically on every push to `main` and on pull requests.
+
+The workflow:
+
+1. Checks out your code
+2. Spins up a temporary Twenty server using the `twentyhq/twenty/.github/actions/spawn-twenty-docker-image` action
+3. Installs dependencies with `yarn install --immutable`
+4. Runs `yarn test` with `TWENTY_API_URL` and `TWENTY_API_KEY` injected from the action outputs
+
+```yaml .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+
+env:
+  TWENTY_VERSION: latest
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Spawn Twenty instance
+        id: twenty
+        uses: twentyhq/twenty/.github/actions/spawn-twenty-docker-image@main
+        with:
+          twenty-version: ${{ env.TWENTY_VERSION }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run integration tests
+        run: yarn test
+        env:
+          TWENTY_API_URL: ${{ steps.twenty.outputs.server-url }}
+          TWENTY_API_KEY: ${{ steps.twenty.outputs.access-token }}
+```
+
+You don't need to configure any secrets — the `spawn-twenty-docker-image` action starts an ephemeral Twenty server directly in the runner and outputs the connection details. The `GITHUB_TOKEN` secret is provided automatically by GitHub.
+
+To pin a specific Twenty version instead of `latest`, change the `TWENTY_VERSION` environment variable at the top of the workflow.
+</file>
+
+<file path="capabilities/apis.mdx">
+---
+title: APIs
+description: Query and modify your CRM data programmatically using REST or GraphQL.
+---
+
+import { VimeoEmbed } from '/snippets/vimeo-embed.mdx';
+
+Twenty was built to be developer-friendly, offering powerful APIs that adapt to your custom data model. We provide four distinct API types to meet different integration needs.
+
+## Developer-First Approach
+
+Twenty generates APIs specifically for your data model:
+- **No long IDs required**: Use your object and field names directly in endpoints
+- **Standard and custom objects treated equally**: Your custom objects get the same API treatment as built-in ones
+- **Dedicated endpoints**: Each object and field gets its own API endpoint
+- **Custom documentation**: Generated specifically for your workspace's data model
+
+<Note>
+Your personalized API documentation is available under **Settings → API & Webhooks** after creating an API key. Since Twenty generates APIs that match your custom data model, the documentation is unique to your workspace.
+</Note>
+
+## The Two API Types
+
+### Core API
+Accessed on `/rest/` or `/graphql/`
+
+Work with your actual **records** (the data):
+- Create, read, update, delete People, Companies, Opportunities, etc.
+- Query and filter data
+- Manage record relationships
+
+### Metadata API
+Accessed on `/rest/metadata/` or `/metadata/`
+
+Manage your **workspace and data model**:
+- Create, modify, or delete objects and fields
+- Configure workspace settings
+- Define relationships between objects
+
+## REST vs GraphQL
+
+Both Core and Metadata APIs are available in REST and GraphQL formats:
+
+| Format | Available Operations |
+|--------|---------------------|
+| **REST** | CRUD, batch operations, upserts |
+| **GraphQL** | Same + **batch upserts**, relationship queries in one call |
+
+Choose based on your needs — both formats access the same data.
+
+## API Endpoints
+
+| Environment | Base URL |
+|-------------|----------|
+| **Cloud** | `https://api.twenty.com/` |
+| **Self-Hosted** | `https://{your-domain}/` |
+
+## Authentication
+
+Every API request requires an API key in the header:
+
+```
+Authorization: Bearer YOUR_API_KEY
+```
+
+### Create an API Key
+
+1. Go to **Settings → APIs & Webhooks**
+2. Click **+ Create key**
+3. Configure:
+   - **Name**: Descriptive name for the key
+   - **Expiration Date**: When the key expires
+4. Click **Save**
+5. **Copy immediately** — the key is only shown once
+
+<VimeoEmbed videoId="928786722" title="Creating API key" />
+
+<Warning>
+Your API key grants access to sensitive data. Don't share it with untrusted services. If compromised, disable it immediately and generate a new one.
+</Warning>
+
+### Assign a Role to an API Key
+
+For better security, assign a specific role to limit access:
+
+1. Go to **Settings → Members → Roles**
+2. Click on the role to assign
+3. Open the **Assignment** tab
+4. Under **API Keys**, click **+ Assign to API key**
+5. Select the API key
+
+The key will inherit that role's permissions. See [Permissions](/user-guide/permissions-access/capabilities/permissions) for details.
+
+### Manage API Keys
+
+**Regenerate**: Settings → APIs & Webhooks → Click key → **Regenerate**
+
+**Delete**: Settings → APIs & Webhooks → Click key → **Delete**
+
+## API Playground
+
+Test your APIs directly in the browser with our built-in playground — available for both **REST** and **GraphQL**.
+
+### Access the Playground
+
+1. Go to **Settings → APIs & Webhooks**
+2. Create an API key (required)
+3. Click on **REST API** or **GraphQL API** to open the playground
+
+### What You Get
+
+- **Interactive documentation**: Generated for your specific data model
+- **Live testing**: Execute real API calls against your workspace
+- **Schema explorer**: Browse available objects, fields, and relationships
+- **Request builder**: Construct queries with autocomplete
+
+The playground reflects your custom objects and fields, so documentation is always accurate for your workspace.
+
+## Batch Operations
+
+Both REST and GraphQL support batch operations:
+- **Batch size**: Up to 60 records per request
+- **Operations**: Create, update, delete multiple records
+
+**GraphQL-only features:**
+- **Batch Upsert**: Create or update in one call
+- Use plural object names (e.g., `CreateCompanies` instead of `CreateCompany`)
+
+## Rate Limits
+
+API requests are throttled to ensure platform stability:
+
+| Limit | Value |
+|-------|-------|
+| **Requests** | 100 calls per minute |
+| **Batch size** | 60 records per call |
+
+<Tip>
+Use batch operations to maximize throughput — process up to 60 records in a single API call instead of making individual requests.
+</Tip>
+</file>
+
+<file path="capabilities/webhooks.mdx">
+---
+title: Webhooks
+description: Receive real-time notifications when events occur in your CRM.
+---
+
+import { VimeoEmbed } from '/snippets/vimeo-embed.mdx';
+
+
+Webhooks push data to your systems in real-time when events occur in Twenty — no polling required. Use them to keep external systems in sync, trigger automations, or send alerts.
+
+## Create a Webhook
+
+1. Go to **Settings → APIs & Webhooks → Webhooks**
+2. Click **+ Create webhook**
+3. Enter your webhook URL (must be publicly accessible)
+4. Click **Save**
+
+The webhook activates immediately and starts sending notifications.
+
+<VimeoEmbed videoId="928786708" title="Creating a webhook" />
+
+### Manage Webhooks
+
+**Edit**: Click the webhook → Update URL → **Save**
+
+**Delete**: Click the webhook → **Delete** → Confirm
+
+## Events
+
+Twenty sends webhooks for these event types:
+
+| Event | Example |
+|-------|---------|
+| **Record Created** | `person.created`, `company.created`, `note.created` |
+| **Record Updated** | `person.updated`, `company.updated`, `opportunity.updated` |
+| **Record Deleted** | `person.deleted`, `company.deleted` |
+
+All event types are sent to your webhook URL. Event filtering may be added in future releases.
+
+## Payload Format
+
+Each webhook sends an HTTP POST with a JSON body:
+
+```json
+{
+  "event": "person.created",
+  "data": {
+    "id": "abc12345",
+    "firstName": "Alice",
+    "lastName": "Doe",
+    "email": "alice@example.com",
+    "createdAt": "2025-02-10T15:30:45Z",
+    "createdBy": "user_123"
+  },
+  "timestamp": "2025-02-10T15:30:50Z"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `event` | What happened (e.g., `person.created`) |
+| `data` | The full record that was created/updated/deleted |
+| `timestamp` | When the event occurred (UTC) |
+
+<Note>
+Respond with a **2xx HTTP status** (200-299) to acknowledge receipt. Non-2xx responses are logged as delivery failures.
+</Note>
+
+## Webhook Validation
+
+Twenty signs each webhook request for security. Validate signatures to ensure requests are authentic.
+
+### Headers
+
+| Header | Description |
+|--------|-------------|
+| `X-Twenty-Webhook-Signature` | HMAC SHA256 signature |
+| `X-Twenty-Webhook-Timestamp` | Request timestamp |
+
+### Validation Steps
+
+1. Get the timestamp from `X-Twenty-Webhook-Timestamp`
+2. Create the string: `{timestamp}:{JSON payload}`
+3. Compute HMAC SHA256 using your webhook secret
+4. Compare with `X-Twenty-Webhook-Signature`
+
+### Example (Node.js)
+
+```javascript
+const crypto = require("crypto");
+
+const timestamp = req.headers["x-twenty-webhook-timestamp"];
+const payload = JSON.stringify(req.body);
+const secret = "your-webhook-secret";
+
+const stringToSign = `${timestamp}:${payload}`;
+const expectedSignature = crypto
+  .createHmac("sha256", secret)
+  .update(stringToSign)
+  .digest("hex");
+
+const isValid = expectedSignature === req.headers["x-twenty-webhook-signature"];
+```
+
+## Webhooks vs Workflows
+
+| Method | Direction | Use Case |
+|--------|-----------|----------|
+| **Webhooks** | OUT | Automatically notify external systems of any record change |
+| **Workflow + HTTP Request** | OUT | Send data out with custom logic (filters, transformations) |
+| **Workflow Webhook Trigger** | IN | Receive data into Twenty from external systems |
+
+For receiving external data, see [Set Up a Webhook Trigger](/user-guide/workflows/how-tos/connect-to-other-tools/set-up-a-webhook-trigger).
+</file>
+
+<file path="api.mdx">
+---
+title: APIs
+icon: "plug"
+description: REST and GraphQL APIs generated from your workspace schema.
+---
+
+import { VimeoEmbed } from '/snippets/vimeo-embed.mdx';
+
+## Schema-per-tenant APIs
+
+There is no static API reference for Twenty. Each workspace has its own schema — when you add a custom object (say `Invoice`), it immediately gets REST and GraphQL endpoints identical to built-in objects like `Company` or `Person`. The API is generated from the schema, so endpoints use your object and field names directly — no opaque IDs.
+
+Your workspace-specific API documentation is available under **Settings → API & Webhooks** after creating an API key. It includes an interactive playground where you can execute real calls against your data.
+
+## Two APIs
+
+**Core API** — `/rest/` and `/graphql/`
+
+CRUD on records: People, Companies, Opportunities, your custom objects. Query, filter, traverse relations.
+
+**Metadata API** — `/rest/metadata/` and `/metadata/`
+
+Schema management: create/modify/delete objects, fields, and relations. This is how you programmatically change your data model.
+
+Both are available as REST and GraphQL. GraphQL adds batch upserts and the ability to traverse relations in a single query. Same underlying data either way.
+
+## Base URLs
+
+| Environment | Base URL |
+|-------------|----------|
+| Cloud | `https://api.twenty.com/` |
+| Self-Hosted | `https://{your-domain}/` |
+
+## Authentication
+
+```
+Authorization: Bearer YOUR_API_KEY
+```
+
+Create an API key in **Settings → API & Webhooks → + Create key**. Copy it immediately — it's shown once. Keys can be scoped to a specific role under **Settings → Members → Roles → Assignment tab** to limit what they can access.
+
+<VimeoEmbed videoId="928786722" title="Creating API key" />
+
+For OAuth-based access (external apps acting on behalf of users), see [OAuth](/developers/extend/oauth).
+
+## Batch operations
+
+Both REST and GraphQL support batching up to 60 records per request — create, update, or delete. GraphQL also supports batch upsert (create-or-update in one call) using plural names like `CreateCompanies`.
+
+## Rate limits
+
+| Limit | Value |
+|-------|-------|
+| Requests | 100 per minute |
+| Batch size | 60 records per call |
+</file>
+
+<file path="extend.mdx">
+---
+title: Extend
+description: Extend Twenty's functionality with APIs, webhooks, and custom apps.
+---
+<Frame>
+  <img src="/images/user-guide/integrations/plug.png" alt="AI" />
+</Frame>
+
+## Overview
+
+Twenty is designed to be extensible. Use our APIs, webhooks, and app framework to integrate with your existing tools and build custom functionality.
+
+## What You Can Do
+
+- **APIs**: Query and modify your CRM data programmatically using REST or GraphQL
+- **Webhooks**: Receive real-time notifications when events occur in Twenty
+- **Apps**: Build custom applications that extend Twenty's capabilities
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card title="APIs" icon="code" href="/developers/extend/api">
+    Connect to Twenty programmatically
+  </Card>
+  <Card title="Webhooks" icon="bell" href="/developers/extend/webhooks">
+    Get notified of events in real-time
+  </Card>
+  <Card title="Apps" icon="puzzle-piece" href="/developers/extend/apps/getting-started">
+    Build customizations as code
+  </Card>
+</CardGroup>
+</file>
+
+<file path="oauth.mdx">
+---
+title: OAuth
+icon: "key"
+description: Authorization code flow with PKCE and client credentials for server-to-server access.
+---
+
+Twenty implements OAuth 2.0 with authorization code + PKCE for user-facing apps and client credentials for server-to-server access. Clients are registered dynamically via [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591) — no manual setup in a dashboard.
+
+## When to Use OAuth
+
+| Scenario | Auth Method |
+|----------|-------------|
+| Internal scripts, automation | [API Key](/developers/extend/api#authentication) |
+| External app acting on behalf of a user | **OAuth — Authorization Code** |
+| Server-to-server, no user context | **OAuth — Client Credentials** |
+| Twenty App with UI extensions | [Apps](/developers/extend/apps/getting-started) (OAuth is handled automatically) |
+
+## Register a Client
+
+Twenty supports **dynamic client registration** per [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591). No manual setup needed — register programmatically:
+
+```bash
+POST /oauth/register
+Content-Type: application/json
+
+{
+  "client_name": "My Integration",
+  "redirect_uris": ["https://myapp.com/callback"],
+  "grant_types": ["authorization_code"],
+  "token_endpoint_auth_method": "client_secret_post"
+}
+```
+
+**Response:**
+
+```json
+{
+  "client_id": "abc123",
+  "client_secret": "secret456",
+  "client_name": "My Integration",
+  "redirect_uris": ["https://myapp.com/callback"]
+}
+```
+
+<Warning>
+Store the `client_secret` securely — it cannot be retrieved later.
+</Warning>
+
+## Scopes
+
+| Scope | Access |
+|-------|--------|
+| `api` | Full read/write access to the Core and Metadata APIs |
+| `profile` | Read the authenticated user's profile information |
+
+Request scopes as a space-separated string: `scope=api profile`
+
+## Authorization Code Flow
+
+Use this flow when your app acts on behalf of a Twenty user.
+
+### 1. Redirect the user to authorize
+
+```
+GET /oauth/authorize?
+  client_id=YOUR_CLIENT_ID&
+  response_type=code&
+  redirect_uri=https://myapp.com/callback&
+  scope=api&
+  state=random_state_value&
+  code_challenge=CHALLENGE&
+  code_challenge_method=S256
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `client_id` | Yes | Your registered client ID |
+| `response_type` | Yes | Must be `code` |
+| `redirect_uri` | Yes | Must match a registered redirect URI |
+| `scope` | No | Space-separated scopes (defaults to `api`) |
+| `state` | Recommended | Random string to prevent CSRF attacks |
+| `code_challenge` | Recommended | PKCE challenge (SHA-256 hash of verifier, base64url-encoded) |
+| `code_challenge_method` | Recommended | Must be `S256` when using PKCE |
+
+The user sees a consent screen and approves or denies access.
+
+### 2. Handle the callback
+
+After authorization, Twenty redirects back to your `redirect_uri`:
+
+```
+https://myapp.com/callback?code=AUTH_CODE&state=random_state_value
+```
+
+Verify that `state` matches what you sent.
+
+### 3. Exchange the code for tokens
+
+```bash
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&
+code=AUTH_CODE&
+redirect_uri=https://myapp.com/callback&
+client_id=YOUR_CLIENT_ID&
+client_secret=YOUR_CLIENT_SECRET&
+code_verifier=YOUR_PKCE_VERIFIER
+```
+
+**Response:**
+
+```json
+{
+  "access_token": "eyJhbG...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "dGhpcyBpcyBh..."
+}
+```
+
+### 4. Use the access token
+
+```bash
+GET /rest/companies
+Authorization: Bearer ACCESS_TOKEN
+```
+
+### 5. Refresh when expired
+
+```bash
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&
+refresh_token=YOUR_REFRESH_TOKEN&
+client_id=YOUR_CLIENT_ID&
+client_secret=YOUR_CLIENT_SECRET
+```
+
+## Client Credentials Flow
+
+For server-to-server integrations with no user interaction:
+
+```bash
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&
+client_id=YOUR_CLIENT_ID&
+client_secret=YOUR_CLIENT_SECRET&
+scope=api
+```
+
+The returned token has workspace-level access, not tied to any specific user.
+
+## Server Discovery
+
+Twenty publishes its OAuth configuration at a standard discovery endpoint:
+
+```
+GET /.well-known/oauth-authorization-server
+```
+
+This returns all endpoints, supported grant types, scopes, and capabilities — useful for building generic OAuth clients.
+
+## API Endpoints Summary
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/.well-known/oauth-authorization-server` | Server metadata discovery |
+| `/oauth/register` | Dynamic client registration |
+| `/oauth/authorize` | User authorization |
+| `/oauth/token` | Token exchange and refresh |
+
+| Environment | Base URL |
+|-------------|----------|
+| **Cloud** | `https://api.twenty.com` |
+| **Self-Hosted** | `https://{your-domain}` |
+
+## OAuth vs API Keys
+
+| | API Keys | OAuth |
+|-|----------|-------|
+| **Setup** | Generate in Settings | Register a client, implement flow |
+| **User context** | None (workspace-level) | Specific user's permissions |
+| **Best for** | Scripts, internal tools | External apps, multi-user integrations |
+| **Token rotation** | Manual | Automatic via refresh tokens |
+| **Scoped access** | Full API access | Granular via scopes |
+</file>
+
+<file path="webhooks.mdx">
+---
+title: Webhooks
+icon: "satellite-dish"
+description: Get notified when records change — HTTP POST to your endpoint on every create, update, or delete.
+---
+
+import { VimeoEmbed } from '/snippets/vimeo-embed.mdx';
+
+Twenty sends an HTTP POST to your URL whenever a record is created, updated, or deleted. All object types are covered, including custom objects.
+
+## Create a Webhook
+
+1. Go to **Settings → APIs & Webhooks → Webhooks**
+2. Click **+ Create webhook**
+3. Enter your webhook URL (must be publicly accessible)
+4. Click **Save**
+
+The webhook activates immediately and starts sending notifications.
+
+<VimeoEmbed videoId="928786708" title="Creating a webhook" />
+
+### Manage Webhooks
+
+**Edit**: Click the webhook → Update URL → **Save**
+
+**Delete**: Click the webhook → **Delete** → Confirm
+
+## Events
+
+Twenty sends webhooks for these event types:
+
+| Event | Example |
+|-------|---------|
+| **Record Created** | `person.created`, `company.created`, `note.created` |
+| **Record Updated** | `person.updated`, `company.updated`, `opportunity.updated` |
+| **Record Deleted** | `person.deleted`, `company.deleted` |
+
+All event types are sent to your webhook URL. Event filtering may be added in future releases.
+
+## Payload Format
+
+Each webhook sends an HTTP POST with a JSON body:
+
+```json
+{
+  "event": "person.created",
+  "data": {
+    "id": "abc12345",
+    "firstName": "Alice",
+    "lastName": "Doe",
+    "email": "alice@example.com",
+    "createdAt": "2025-02-10T15:30:45Z",
+    "createdBy": "user_123"
+  },
+  "timestamp": "2025-02-10T15:30:50Z"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `event` | What happened (e.g., `person.created`) |
+| `data` | The full record that was created/updated/deleted |
+| `timestamp` | When the event occurred (UTC) |
+
+<Note>
+Respond with a **2xx HTTP status** (200-299) to acknowledge receipt. Non-2xx responses are logged as delivery failures.
+</Note>
+
+## Webhook Validation
+
+Twenty signs each webhook request for security. Validate signatures to ensure requests are authentic.
+
+### Headers
+
+| Header | Description |
+|--------|-------------|
+| `X-Twenty-Webhook-Signature` | HMAC SHA256 signature |
+| `X-Twenty-Webhook-Timestamp` | Request timestamp |
+
+### Validation Steps
+
+1. Get the timestamp from `X-Twenty-Webhook-Timestamp`
+2. Create the string: `{timestamp}:{JSON payload}`
+3. Compute HMAC SHA256 using your webhook secret
+4. Compare with `X-Twenty-Webhook-Signature`
+
+### Example (Node.js)
+
+```javascript
+const crypto = require("crypto");
+
+const timestamp = req.headers["x-twenty-webhook-timestamp"];
+const payload = JSON.stringify(req.body);
+const secret = "your-webhook-secret";
+
+const stringToSign = `${timestamp}:${payload}`;
+const expectedSignature = crypto
+  .createHmac("sha256", secret)
+  .update(stringToSign)
+  .digest("hex");
+
+const receivedSignature = req.headers["x-twenty-webhook-signature"];
+const isValid = crypto.timingSafeEqual(
+  Buffer.from(expectedSignature, "hex"),
+  Buffer.from(receivedSignature, "hex")
+);
+```
+
+## Webhooks vs Workflows
+
+| Method | Direction | Use Case |
+|--------|-----------|----------|
+| **Webhooks** | OUT | Automatically notify external systems of any record change |
+| **Workflow + HTTP Request** | OUT | Send data out with custom logic (filters, transformations) |
+| **Workflow Webhook Trigger** | IN | Receive data into Twenty from external systems |
+
+For receiving external data, see [Set Up a Webhook Trigger](/user-guide/workflows/how-tos/connect-to-other-tools/set-up-a-webhook-trigger).
+</file>
+
+</files>

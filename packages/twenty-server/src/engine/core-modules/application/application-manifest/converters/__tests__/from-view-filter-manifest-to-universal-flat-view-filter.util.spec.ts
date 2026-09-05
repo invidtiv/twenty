@@ -26,6 +26,7 @@ describe('fromViewFilterManifestToUniversalFlatViewFilter', () => {
     expect(result.operand).toBe(ViewFilterOperand.CONTAINS);
     expect(result.value).toBe('test');
     expect(result.subFieldName).toBeNull();
+    expect(result.relationTargetFieldMetadataUniversalIdentifier).toBeNull();
     expect(result.viewFilterGroupUniversalIdentifier).toBeNull();
     expect(result.positionInViewFilterGroup).toBeNull();
   });
@@ -38,6 +39,7 @@ describe('fromViewFilterManifestToUniversalFlatViewFilter', () => {
         operand: ViewFilterOperand.IS,
         value: ['a', 'b'],
         subFieldName: 'city',
+        relationTargetFieldMetadataUniversalIdentifier: 'target-uuid',
         viewFilterGroupUniversalIdentifier: 'vfg-uuid-1',
         positionInViewFilterGroup: 2,
       },
@@ -47,6 +49,10 @@ describe('fromViewFilterManifestToUniversalFlatViewFilter', () => {
     });
 
     expect(result.subFieldName).toBe('city');
+    expect(result.value).toBe('["a","b"]');
+    expect(result.relationTargetFieldMetadataUniversalIdentifier).toBe(
+      'target-uuid',
+    );
     expect(result.viewFilterGroupUniversalIdentifier).toBe('vfg-uuid-1');
     expect(result.positionInViewFilterGroup).toBe(2);
   });

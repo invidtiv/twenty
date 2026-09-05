@@ -1,0 +1,155 @@
+import {
+  FieldType,
+  OnDeleteAction,
+  RelationType,
+  defineObject,
+} from 'twenty-sdk/define';
+
+import { BOOKING, WHATSAPP_CONTACT_WATCH } from 'src/constants/identifiers';
+
+export default defineObject({
+  universalIdentifier: WHATSAPP_CONTACT_WATCH.object,
+  nameSingular: 'whatsappContactWatch',
+  namePlural: 'whatsappContactWatches',
+  labelSingular: 'WhatsApp Contact Watch',
+  labelPlural: 'WhatsApp Contact Watches',
+  description:
+    'Booking-scoped WhatsApp monitoring activated after welcome-message confirmation.',
+  icon: 'IconBrandWhatsapp',
+  isSearchable: true,
+  labelIdentifierFieldMetadataUniversalIdentifier:
+    WHATSAPP_CONTACT_WATCH.fields.name,
+  fields: [
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.name,
+      type: FieldType.TEXT,
+      name: 'name',
+      label: 'Watch',
+      icon: 'IconEye',
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.watchKey,
+      type: FieldType.TEXT,
+      name: 'watchKey',
+      label: 'Watch key',
+      icon: 'IconKey',
+      isUnique: true,
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.booking,
+      type: FieldType.RELATION,
+      name: 'booking',
+      label: 'Booking',
+      icon: 'IconCalendarCheck',
+      relationTargetObjectMetadataUniversalIdentifier: BOOKING.object,
+      relationTargetFieldMetadataUniversalIdentifier:
+        BOOKING.fields.whatsappContactWatches,
+      universalSettings: {
+        relationType: RelationType.MANY_TO_ONE,
+        onDelete: OnDeleteAction.CASCADE,
+        joinColumnName: 'bookingId',
+      },
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.serviceEventId,
+      type: FieldType.TEXT,
+      name: 'serviceEventId',
+      label: 'Activation event ID',
+      icon: 'IconCalendarEvent',
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.contactMethodId,
+      type: FieldType.TEXT,
+      name: 'contactMethodId',
+      label: 'Contact method ID',
+      icon: 'IconAddressBook',
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.normalizedPhone,
+      type: FieldType.TEXT,
+      name: 'normalizedPhone',
+      label: 'Normalized phone',
+      icon: 'IconPhone',
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.activatedAt,
+      type: FieldType.DATE_TIME,
+      name: 'activatedAt',
+      label: 'Activated at',
+      icon: 'IconPlayerPlay',
+    },
+    {
+      universalIdentifier:
+        WHATSAPP_CONTACT_WATCH.fields.activationWatermarkMessageId,
+      type: FieldType.NUMBER,
+      name: 'activationWatermarkMessageId',
+      label: 'Activation message watermark',
+      icon: 'IconHash',
+      defaultValue: 0,
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.monitorUntil,
+      type: FieldType.DATE_TIME,
+      name: 'monitorUntil',
+      label: 'Monitor until',
+      icon: 'IconPlayerStop',
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.status,
+      type: FieldType.SELECT,
+      name: 'status',
+      label: 'Status',
+      icon: 'IconActivity',
+      defaultValue: "'PENDING'",
+      options: [
+        { value: 'PENDING', label: 'Pending', position: 0, color: 'yellow' },
+        { value: 'ACTIVE', label: 'Active', position: 1, color: 'green' },
+        { value: 'ENDED', label: 'Ended', position: 2, color: 'gray' },
+        {
+          value: 'NEEDS_REVIEW',
+          label: 'Needs review',
+          position: 3,
+          color: 'red',
+        },
+      ],
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.guestName,
+      type: FieldType.TEXT,
+      name: 'guestName',
+      label: 'Guest snapshot',
+      icon: 'IconUser',
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.propertyName,
+      type: FieldType.TEXT,
+      name: 'propertyName',
+      label: 'Property snapshot',
+      icon: 'IconHome',
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.checkinAt,
+      type: FieldType.DATE_TIME,
+      name: 'checkinAt',
+      label: 'Check-in',
+      icon: 'IconLogin2',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.checkoutAt,
+      type: FieldType.DATE_TIME,
+      name: 'checkoutAt',
+      label: 'Check-out',
+      icon: 'IconLogout2',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: WHATSAPP_CONTACT_WATCH.fields.metadata,
+      type: FieldType.RAW_JSON,
+      name: 'metadata',
+      label: 'Metadata',
+      icon: 'IconJson',
+      isNullable: true,
+    },
+  ],
+});

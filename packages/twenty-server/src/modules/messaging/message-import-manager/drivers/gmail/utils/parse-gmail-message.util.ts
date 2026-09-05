@@ -22,6 +22,14 @@ export const parseGmailMessage = (message: gmail_v1.Schema$Message) => {
   const historyId = message.historyId;
   const internalDate = message.internalDate;
   const labelIds = message.labelIds ?? [];
+  const normalizedLabelIds = labelIds.map((labelId) => labelId.toUpperCase());
+
+  const classification = {
+    provider: 'gmail' as const,
+    isSpam: normalizedLabelIds.includes('SPAM'),
+    isImportant: normalizedLabelIds.includes('IMPORTANT'),
+    sourceLabelIds: labelIds,
+  };
 
   assert(id, 'ID is missing');
   assert(historyId, 'History-ID is missing');
@@ -55,5 +63,6 @@ export const parseGmailMessage = (message: gmail_v1.Schema$Message) => {
     text,
     attachments,
     labelIds,
+    classification,
   };
 };
