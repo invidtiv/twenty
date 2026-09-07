@@ -36,6 +36,8 @@ const handler = async (event: RoutePayload<RecordsRequest>) => {
         ok: true,
         record: await service.upsertProperty(input as PropertyInput),
       };
+    case 'confirmBookingArrival':
+      return { ok: true, ...(await service.confirmBookingArrival(input)) };
     case 'upsertBooking':
       return { ok: true, record: await service.upsertBooking(input as BookingInput) };
     case 'upsertBookingContactMethod':

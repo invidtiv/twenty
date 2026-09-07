@@ -7,6 +7,9 @@ export const bookingSelection = {
   id: true,
   name: true,
   bookingId: true,
+  sourceCheckinAt: true,
+  arrivalRevision: true,
+  operatorArrivalConfirmation: true,
   sourceKey: true,
   guestId: true,
   propertyId: true,
@@ -73,6 +76,9 @@ export const whatsappWatchSelection = {
   metadata: true
 };
 export const timelineBookingSelection = {
+  sourceCheckinAt: true,
+  arrivalRevision: true,
+  operatorArrivalConfirmation: true,
   id: true,
   name: true,
   bookingId: true,

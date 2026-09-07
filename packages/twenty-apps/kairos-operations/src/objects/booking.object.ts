@@ -13,6 +13,24 @@ export default defineObject(
   "labelIdentifierFieldMetadataUniversalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
   "fields": [
     {
+      "universalIdentifier": "5b535f5e-f4cb-4d23-ae8b-39962e80ddc2",
+      type: FieldType.DATE_TIME,
+      "name": "sourceCheckinAt",
+      "label": "Source check-in time"
+    },
+    {
+      "universalIdentifier": "51aeacc5-ca02-45aa-ba33-8c68652bfbad",
+      type: FieldType.TEXT,
+      "name": "arrivalRevision",
+      "label": "Arrival confirmation revision"
+    },
+    {
+      "universalIdentifier": "947b53b0-697c-4363-8419-4aa65a134ff0",
+      type: FieldType.RAW_JSON,
+      "name": "operatorArrivalConfirmation",
+      "label": "Operator arrival confirmation"
+    },
+    {
       "universalIdentifier": "645a4580-4dbc-476c-821e-5fa907dbb07f",
       type: FieldType.TEXT,
       "name": "name",

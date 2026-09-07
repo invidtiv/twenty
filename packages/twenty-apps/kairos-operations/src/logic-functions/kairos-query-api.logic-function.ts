@@ -81,6 +81,12 @@ const handler = async (event: RoutePayload<QueryRequest>) => {
         ok: true,
         record: await service.getEmailThread(request.threadId),
       };
+    case 'getBookingContacts':
+      if (!request.bookingId) throw new Error('bookingId is required');
+      return {
+        ok: true,
+        records: await service.getContactRecords(request.bookingId),
+      };
     case 'getPreferredContact':
       if (!request.bookingId) throw new Error('bookingId is required');
       return {

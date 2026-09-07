@@ -57,7 +57,49 @@ export class KairosOperationsService {
       { id: true, externalPropertyId: true, name: true }
     );
   }
-  async upsertBooking(input) {
+  // The booking update is atomic; event projection is retryable, not a cross-record transaction.
+  async confirmBookingArrival(input) {
+    const bookingId = requiredText(input.bookingId, "bookingId");
+    if (typeof input.checkinAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(input.checkinAt)) {
+      throw new Error('checkinAt requires an explicit ISO timezone offset');
+    }
+    const checkinAt = validDate(input.checkinAt, "checkinAt").toISOString();
+    const confirmationId = requiredText(input.confirmationId, "confirmationId");
+    const timezone = requiredText(input.timezone, "timezone");
+    new Intl.DateTimeFormat('en', { timeZone: timezone }).format(new Date(checkinAt));
+    const confirmedBy = requiredText(input.confirmedBy, "confirmedBy");
+    const evidence = requiredText(input.evidence, "evidence");
+    const booking = await this.getBooking(bookingId);
+    const previous = booking.operatorArrivalConfirmation;
+    if (booking.status === 'CANCELLED') throw new Error('Arrival confirmation rejected: booking cancelled');
+    if (booking.arrivalRevision === confirmationId) {
+      if (!previous || previous.checkinAt !== checkinAt || previous.timezone !== timezone || previous.confirmedBy !== confirmedBy || previous.evidence !== evidence) {
+        throw new Error('Arrival confirmation conflict: id reused with different payload');
+      }
+    } else {
+      if (input.expectedArrivalRevision === undefined || (booking.arrivalRevision || null) !== input.expectedArrivalRevision) {
+        throw new Error('Arrival confirmation conflict: expectedArrivalRevision does not match');
+      }
+      const [updated] = await this.repository.updateMany(
+        "bookings",
+        { id: { eq: bookingId }, not: { status: { eq: 'CANCELLED' } }, arrivalRevision: input.expectedArrivalRevision === null ? { is: 'NULL' } : { eq: input.expectedArrivalRevision } },
+        {
+          checkinAt,
+          timezone,
+          arrivalRevision: confirmationId,
+          operatorArrivalConfirmation: { confirmationId, checkinAt, timezone, confirmedBy, evidence, confirmedAt: this.now().toISOString(), previousCheckinAt: booking.checkinAt ?? null, previousConfirmation: previous ?? null },
+        },
+        bookingSelection,
+      );
+      if (!updated) throw new Error('Arrival confirmation conflict: booking changed concurrently');
+    }
+    await this.reconcileBooking(bookingId);
+    return {
+      booking: await this.getBooking(bookingId),
+      events: await this.repository.findMany('serviceEvents', { filter: { bookingId: { eq: bookingId }, source: { eq: 'KAIROS' } }, first: 100 }, serviceEventSelection),
+    };
+  }
+  async upsertBooking(input, attempt = 0) {
     const source = normalizeOption(input.source);
     const externalBookingId = requiredText(
       input.externalBookingId,
@@ -69,9 +111,7 @@ export class KairosOperationsService {
       { filter: { sourceKey: { eq: sourceKey } }, first: 1 },
       bookingSelection
     );
-    const booking = await this.repository.upsert(
-      "bookings",
-      compactRecord({
+    const data = compactRecord({
         bookingId: textValue(existing, "bookingId") ?? stableBookingUuid(sourceKey),
         source,
         externalBookingId,
@@ -81,11 +121,12 @@ export class KairosOperationsService {
         sourceLastSeenAt: input.sourceLastSeenAt ?? this.now().toISOString(),
         guestId: input.guestId,
         propertyId: input.propertyId,
-        checkinAt: input.checkinAt,
+        sourceCheckinAt: input.checkinAt,
+        checkinAt: existing?.arrivalRevision ? void 0 : input.checkinAt,
         checkoutAt: input.checkoutAt,
         arrivalWindowStart: input.arrivalWindowStart,
         arrivalWindowEnd: input.arrivalWindowEnd,
-        timezone: input.timezone ?? (existing ? void 0 : "Europe/Lisbon"),
+        timezone: existing?.arrivalRevision ? void 0 : input.timezone ?? (existing ? void 0 : "Europe/Lisbon"),
         status: input.status ? normalizeOption(input.status) : existing ? void 0 : "NEW",
         riskLevel: input.riskLevel ? normalizeOption(input.riskLevel) : void 0,
         needsHumanReview: input.needsHumanReview,
@@ -93,9 +134,14 @@ export class KairosOperationsService {
         internalNotes: input.internalNotes,
         specialInstructions: input.specialInstructions,
         rawMetadata: input.rawMetadata
-      }),
-      bookingSelection
-    );
+      });
+    const booking = existing
+      ? (await this.repository.updateMany("bookings", { id: { eq: existing.id }, arrivalRevision: existing.arrivalRevision ? { eq: existing.arrivalRevision } : { is: "NULL" } }, data, bookingSelection))[0]
+      : await this.repository.upsert("bookings", data, bookingSelection);
+    if (!booking) {
+      if (attempt >= 3) throw new Error("Arrival changed during ingestion; retry source sync");
+      return this.upsertBooking(input, attempt + 1);
+    }
     return this.reconcileBooking(booking.id);
   }
   async persistContactMethod(input) {
@@ -599,7 +645,7 @@ export class KairosOperationsService {
     });
     return [fallback];
   }
-  async reconcileBooking(bookingId) {
+  async reconcileBooking(bookingId, attempt = 0) {
     const booking = await this.getBooking(bookingId);
     let contacts = await this.getContactRecords(bookingId);
     contacts = await this.ensurePersonFallbackContact(booking, contacts);
@@ -651,27 +697,22 @@ export class KairosOperationsService {
         },
         first: 100
       },
-      { id: true, sourceEventKey: true, eventType: true, status: true }
-    );
-    const existingStatusByKey = new Map(
-      derivedEvents
-        .map((event) => [textValue(event, "sourceEventKey"), textValue(event, "status")])
-        .filter((pair) => pair[0])
+      { id: true, sourceEventKey: true, eventType: true, status: true, notes: true }
     );
     for (const event of expectedEvents) {
-      const existingStatus = existingStatusByKey.get(event.sourceEventKey);
-      // Re-sync (TalkGuest -> on-booking-changed) must never clobber a
-      // terminal occurrence back to SCHEDULED: that resurrected completed
-      // events and refired the reminder scheduler. Preserve COMPLETED/CANCELLED.
-      const status =
-        existingStatus === "COMPLETED" || existingStatus === "CANCELLED"
-          ? existingStatus
-          : event.status;
-      await this.repository.upsert(
-        "serviceEvents",
-        status ? { ...event, status } : event,
-        recordSelection
-      );
+      const existingEvent = derivedEvents.find((row) => row.sourceEventKey === event.sourceEventKey);
+      if (existingEvent) {
+        // Projection owns only timing/title, never lifecycle, money, mute or operator notes.
+        await this.repository.updateMany("serviceEvents", { id: { eq: existingEvent.id }, not: { status: { in: ["COMPLETED", "CANCELLED"] } } }, {
+          title: event.title,
+          startsAt: event.startsAt,
+        }, recordSelection);
+        if (existingEvent.notes === "TalkGuest has supplied the check-in date, but not the arrival time yet." && !event.notes) {
+          await this.repository.updateMany("serviceEvents", { id: { eq: existingEvent.id }, not: { status: { in: ["COMPLETED", "CANCELLED"] } }, notes: { eq: existingEvent.notes } }, { notes: null }, recordSelection);
+        }
+      } else {
+        await this.repository.upsert("serviceEvents", event, recordSelection);
+      }
     }
     const derivedEventTypes = /* @__PURE__ */ new Set([
       "GUEST_CONTACT_DEADLINE",
@@ -682,15 +723,20 @@ export class KairosOperationsService {
     for (const event of derivedEvents) {
       const sourceEventKey = textValue(event, "sourceEventKey");
       if (sourceEventKey && derivedEventTypes.has(textValue(event, "eventType") ?? "") && !expectedEventKeys.has(sourceEventKey) && event.status !== "CANCELLED") {
-        await this.repository.update(
-          "serviceEvent",
-          event.id,
+        await this.repository.updateMany(
+          "serviceEvents",
+          { id: { eq: event.id }, not: { status: { in: ["COMPLETED", "CANCELLED"] } } },
           { status: "CANCELLED" },
           recordSelection
         );
       }
     }
-    return updatedBooking;
+    const latest = await this.getBooking(bookingId);
+    if (latest.arrivalRevision !== updatedBooking.arrivalRevision) {
+      if (attempt >= 3) throw new Error("Arrival changed during reconciliation; retry");
+      return this.reconcileBooking(bookingId, attempt + 1);
+    }
+    return latest;
   }
   async flagBookingForSourceReview(bookingId, reason) {
     const booking = await this.getBooking(bookingId);
