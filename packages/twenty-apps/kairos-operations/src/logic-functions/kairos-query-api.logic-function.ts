@@ -1,3 +1,4 @@
+import { portugalTime } from 'src/runtime/portugal-time';
 import { defineLogicFunction } from 'twenty-sdk/define';
 import { type RoutePayload } from 'twenty-sdk/logic-function';
 
@@ -8,6 +9,8 @@ import { CoreApiRecordsRepository } from 'src/runtime/core-api-records-repositor
 type QueryRequest = {
   operation?: string;
   bookingId?: string;
+  propertyId?: string;
+  query?: string;
   threadId?: string;
   timeZone?: string;
   hours?: number;
@@ -23,19 +26,26 @@ const handler = async (event: RoutePayload<QueryRequest>) => {
   const request = event.body ?? {};
   const service = new KairosOperationsService(new CoreApiRecordsRepository());
   switch (request.operation) {
+    case 'getBookingDetails':
+      if (!request.bookingId) throw new Error('bookingId is required');
+      return { ok: true, detail: await service.getBookingDetails(request.bookingId) };
+    case 'getProperties':
+      return { ok: true, ...await service.getProperties(request.propertyId, request.limit ?? 100) };
+    case 'searchBookings':
+      return { ok: true, ...await service.searchBookings(request.query, request.startsAt, request.endsAt, request.limit ?? 50) };
     case 'getTomorrowCheckins':
       return {
         ok: true,
-        records: await service.getTomorrowCheckins(
+        records: await service.enrichReadRecords(await service.getTomorrowCheckins(
           request.timeZone ?? 'Europe/Lisbon',
-        ),
+        )),
       };
     case 'getIncompleteBookings':
-      return { ok: true, records: await service.getIncompleteBookings() };
+      return { ok: true, records: await service.enrichReadRecords(await service.getIncompleteBookings()) };
     case 'getUpcomingEvents':
       return {
         ok: true,
-        records: await service.getUpcomingEvents(request.hours ?? 24),
+        records: await service.enrichReadRecords(await service.getUpcomingEvents(request.hours ?? 24), "event"),
       };
     case 'getCheckBalance':
       return {
@@ -50,10 +60,10 @@ const handler = async (event: RoutePayload<QueryRequest>) => {
       }
       return {
         ok: true,
-        records: await service.getServiceEvents(
+        records: await service.enrichReadRecords(await service.getServiceEvents(
           request.startsAt,
           request.endsAt,
-        ),
+        ), "event"),
       };
     case 'getOperationsTimeline':
       if (!request.startsAt || !request.endsAt) {
@@ -111,7 +121,7 @@ export default defineLogicFunction({
   description:
     'Authenticated operational queries for bookings, calendar events, contact resolution, and read-only email access.',
   timeoutSeconds: 30,
-  handler,
+  handler: async (event) => ({ ...await handler(event), portugal_time: portugalTime() }),
   httpRouteTriggerSettings: {
     path: '/kairos/query',
     httpMethod: 'POST',

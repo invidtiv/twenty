@@ -432,7 +432,7 @@ export class KairosOperationsService {
     for (const watch of records) {
       const activated = Date.parse(textValue(watch, "activatedAt") ?? "");
       const until = Date.parse(textValue(watch, "monitorUntil") ?? "");
-      if (!Number.isFinite(activated) || !Number.isFinite(until) || instant < activated || instant > until) continue;
+      if (!Number.isFinite(activated) || !Number.isFinite(until) || instant < activated) continue;
       const [activationEvent] = await this.repository.findMany(
         "serviceEvents",
         { filter: { id: { eq: textValue(watch, "serviceEventId") } }, first: 1 },
@@ -448,8 +448,19 @@ export class KairosOperationsService {
       // booking window so the guest's WhatsApp flows into their per-guest topic
       // without a manual welcome confirmation. Manual confirmWelcomeSent watches
       // keep the strict requirement that the activation event be COMPLETED.
-      if (!autoArmed && activationStatus !== "COMPLETED") continue;
-      if (expectedStartsAt && Date.parse(textValue(activationEvent, "startsAt") ?? "") !== Date.parse(expectedStartsAt)) continue;
+      if (!autoArmed && (activationStatus !== "COMPLETED" || instant > until)) continue;
+      if (activationStatus === "CANCELLED") continue;
+      // Auto-armed watches are deliberately NOT pinned to the activation
+      // event's exact time. An arrival change legitimately reschedules
+      // GUEST_CONTACT_DEADLINE/CHECK_IN (+/- a few hours), and pinning silently
+      // un-watched the booking at exactly the moment capturing the guest
+      // mattered most - and it never recovered, because autoArmUpcomingWatches
+      // skips bookings that already hold an ACTIVE watch. Scope cannot leak:
+      // the watch is still bounded by activatedAt..canonicalCheckout and by the
+      // preferred-contact identity checks below. Manual welcome-confirmed
+      // watches keep the strict pin, so a reopened/rescheduled activation still
+      // invalidates them.
+      if (!autoArmed && expectedStartsAt && Date.parse(textValue(activationEvent, "startsAt") ?? "") !== Date.parse(expectedStartsAt)) continue;
       const booking = await this.getBooking(requiredText(textValue(watch, "bookingId") ?? "", "bookingId"));
       if (textValue(booking, "status") === "CANCELLED") continue;
       const preferred = await this.getPreferredContact(booking.id);
@@ -478,29 +489,45 @@ export class KairosOperationsService {
       throw new Error("hours must be between 0 and 744");
     }
     const events = await this.getUpcomingEvents(hours);
+    // Also reconcile watches during a stay after their activation event is past.
+    const existingWatches = await this.repository.findMany("whatsappContactWatches", { filter: { status: { eq: "ACTIVE" } }, first: 500 }, whatsappWatchSelection);
+    for (const watch of existingWatches) {
+      if (objectValue(watch, "metadata")?.autoArmed !== true) continue;
+      const [event] = await this.repository.findMany("serviceEvents", { filter: { id: { eq: textValue(watch, "serviceEventId") } }, first: 1 }, serviceEventSelection);
+      if (event && !events.some(candidate => candidate.id === event.id)) events.push(event);
+    }
     const armed = [];
     const handledBookings = /* @__PURE__ */ new Set();
     for (const event of events) {
       const eventType = textValue(event, "eventType");
       if (eventType !== "GUEST_CONTACT_DEADLINE" && eventType !== "CHECK_IN") continue;
-      if (event.kairosRemindersEnabled === false) continue;
+      if (event.kairosRemindersEnabled === false || textValue(event, "status") === "CANCELLED") continue;
       const bookingId = textValue(event, "bookingId");
       if (!bookingId || handledBookings.has(bookingId)) continue;
       handledBookings.add(bookingId);
       const booking = await this.getBooking(bookingId).catch(() => null);
       if (!booking || textValue(booking, "status") === "CANCELLED") continue;
       const checkoutAt = textValue(booking, "checkoutAt");
-      if (!checkoutAt) continue;
+      if (!checkoutAt || Date.parse(checkoutAt) <= this.now().getTime()) continue;
       const preferred = await this.getPreferredContact(bookingId);
       if (!preferred || !["PHONE", "WHATSAPP"].includes(preferred.contactType)) continue;
-      const normalizedPhone = normalizeInternationalPhone(preferred.contactValue);
+      let normalizedPhone;
+      try { normalizedPhone = normalizeInternationalPhone(preferred.contactValue); } catch { continue; }
       if (!normalizedPhone) continue;
       const [existing] = await this.repository.findMany(
         "whatsappContactWatches",
-        { filter: { bookingId: { eq: bookingId } }, first: 1 },
+        { filter: { and: [{ bookingId: { eq: bookingId } }, { status: { eq: "ACTIVE" } }] }, first: 1 },
         whatsappWatchSelection
       );
-      if (existing && textValue(existing, "status") === "ACTIVE") continue;
+      if (existing && textValue(existing, "status") === "ACTIVE") {
+        if (objectValue(existing, "metadata")?.autoArmed !== true) continue;
+        if (existing.contactMethodId === preferred.id && existing.normalizedPhone === normalizedPhone) {
+          if (existing.monitorUntil !== checkoutAt) await this.repository.update("whatsappContactWatch", existing.id, { monitorUntil: checkoutAt, checkoutAt }, whatsappWatchSelection);
+          continue;
+        }
+        // Identity is immutable in the listener: retire, then create a fresh activation.
+        await this.repository.update("whatsappContactWatch", existing.id, { status: "ENDED" }, whatsappWatchSelection);
+      }
       const [property] = textValue(booking, "propertyId")
         ? await this.repository.findMany(
             "properties",
@@ -513,7 +540,7 @@ export class KairosOperationsService {
       const watch = await this.repository.upsert(
         "whatsappContactWatches",
         {
-          watchKey: `AUTO_ARM:${bookingId}`,
+          watchKey: `AUTO_ARM:${bookingId}:${randomUUID()}`,
           bookingId,
           serviceEventId: event.id,
           contactMethodId: preferred.id,
@@ -597,6 +624,55 @@ export class KairosOperationsService {
       }),
       { id: true, communicationKey: true, summary: true }
     );
+  }
+async getProperties(propertyId, limit = 100) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be an integer between 1 and 200");
+    const records = await this.repository.findMany("properties", {
+      ...(propertyId ? { filter: { id: { eq: requiredText(propertyId, "propertyId") } } } : {}),
+      first: limit + 1, orderBy: [{ id: "AscNullsLast" }]
+    }, timelinePropertySelection);
+    return { records: records.slice(0, limit), hasMore: records.length > limit, limit };
+  }
+async enrichReadRecords(records, kind = "booking") {
+    if (!records.length) return [];
+    const ids = [...new Set(records.map(record => kind === "booking" ? record.id : record.bookingId).filter(Boolean))];
+    const bookings = kind === "booking" ? records : ids.length ? await this.repository.findMany("bookings", { filter: { id: { in: ids } }, first: 500 }, bookingSelection) : [];
+    const propertyIds = [...new Set(bookings.map(booking => booking.propertyId).filter(Boolean))];
+    const properties = propertyIds.length ? await this.repository.findMany("properties", { filter: { id: { in: propertyIds } }, first: 500 }, timelinePropertySelection) : [];
+    const propertyById = new Map(properties.map(property => [property.id, property]));
+    const bookingById = new Map(bookings.map(booking => [booking.id, { ...booking, property: propertyById.get(booking.propertyId) ?? null }]));
+    return records.map(record => kind === "booking" ? bookingById.get(record.id) : { ...record, booking: bookingById.get(record.bookingId) ?? null });
+  }
+async searchBookings(query, startsAt, endsAt, limit = 50) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be an integer between 1 and 200");
+    const filters = [];
+    if (query !== undefined) {
+      const term = requiredText(query, "query").trim();
+      if (term.length < 2 || term.length > 100 || /[%_]/.test(term)) throw new Error("query must be 2-100 characters without wildcard characters");
+      filters.push({ name: { ilike: `%${term}%` } });
+    }
+    if (Boolean(startsAt) !== Boolean(endsAt)) throw new Error("startsAt and endsAt must be supplied together");
+    if (startsAt && endsAt) {
+      const start = validDate(startsAt, "startsAt"); const end = validDate(endsAt, "endsAt");
+      if (end <= start || end.getTime() - start.getTime() > 366 * 86400000) throw new Error("date range must be positive and at most 366 days");
+      filters.push({ checkinAt: { gte: start.toISOString() } }, { checkinAt: { lt: end.toISOString() } });
+    }
+    if (!filters.length) throw new Error("query or a check-in date range is required");
+    const records = await this.repository.findMany("bookings", { filter: { and: filters }, first: limit + 1, orderBy: [{ checkinAt: "DescNullsLast" }, { id: "AscNullsLast" }] }, bookingSelection);
+    return { records: await this.enrichReadRecords(records.slice(0, limit)), hasMore: records.length > limit, limit };
+  }
+async getBookingDetails(bookingId) {
+    requiredText(bookingId, "bookingId");
+    const booking = await this.getBooking(bookingId);
+    const [enriched] = await this.enrichReadRecords([booking]);
+    const [contacts, events, watches] = await Promise.all([
+      this.repository.findMany("bookingContactMethods", { filter: { bookingId: { eq: bookingId } }, first: 201 }, contactSelection),
+      this.repository.findMany("serviceEvents", { filter: { bookingId: { eq: bookingId } }, first: 201, orderBy: [{ startsAt: "AscNullsLast" }] }, serviceEventSelection),
+      this.repository.findMany("whatsappContactWatches", { filter: { bookingId: { eq: bookingId } }, first: 201 }, whatsappWatchSelection)
+    ]);
+    return { booking: enriched, contacts: contacts.slice(0, 200), preferredContact: contacts.find(contact => contact.id === booking.preferredContactMethodId) ?? null,
+      serviceEvents: events.slice(0, 200), watches: watches.slice(0, 200),
+      coverage: { contactsTruncated: contacts.length > 200, eventsTruncated: events.length > 200, watchesTruncated: watches.length > 200 } };
   }
   async getBooking(bookingId) {
     const [booking] = await this.repository.findMany(

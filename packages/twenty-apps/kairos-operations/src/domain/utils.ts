@@ -56,7 +56,12 @@ export const serviceEventSelection = {
   source: true,
   externalEventId: true,
   bookingId: true,
-  kairosRemindersEnabled: true
+  kairosRemindersEnabled: true,
+  // REQUIRED by confirmWelcomeSent(): it compares event.dispositionRevision
+  // against the caller's expectedRevision. Omitting this field made the value
+  // `undefined`, so the comparison always failed and the welcome-confirmation
+  // path could never complete a GUEST_CONTACT_DEADLINE (found 2026-10-02).
+  dispositionRevision: true
 };
 export const whatsappWatchSelection = {
   id: true,

@@ -1,3 +1,4 @@
+import { portugalTime } from 'src/runtime/portugal-time';
 import {
   type DatabaseEventPayload,
   defineLogicFunction,
@@ -44,7 +45,7 @@ export default defineLogicFunction({
   description:
     'Preserves source provenance and requests booking reconciliation without applying source values.',
   timeoutSeconds: 30,
-  handler,
+  handler: async (event) => ({ ...await handler(event), portugal_time: portugalTime() }),
   databaseEventTriggerSettings: {
     eventName: 'sourceRecord.*',
     updatedFields: ['booking', 'parseStatus', 'error', 'contentHash'],

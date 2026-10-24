@@ -1,3 +1,4 @@
+import { portugalTime } from 'src/runtime/portugal-time';
 import {
   type DatabaseEventPayload,
   defineLogicFunction,
@@ -22,7 +23,7 @@ export default defineLogicFunction({
   description:
     'Recalculates readiness and idempotently creates expected service events.',
   timeoutSeconds: 30,
-  handler,
+  handler: async (event) => ({ ...await handler(event), portugal_time: portugalTime() }),
   databaseEventTriggerSettings: {
     eventName: 'booking.*',
     updatedFields: [

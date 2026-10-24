@@ -1,3 +1,4 @@
+import { portugalTime } from 'src/runtime/portugal-time';
 import { defineLogicFunction } from 'twenty-sdk/define';
 import { type RoutePayload } from 'twenty-sdk/logic-function';
 
@@ -140,7 +141,7 @@ export default defineLogicFunction({
   description:
     'Authenticated idempotent mutation boundary for Kairos operational records.',
   timeoutSeconds: 30,
-  handler,
+  handler: async (event) => ({ ...await handler(event), portugal_time: portugalTime() }),
   httpRouteTriggerSettings: {
     path: '/kairos/records',
     httpMethod: 'POST',
