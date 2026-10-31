@@ -72,7 +72,10 @@
         "{projectRoot}/src/*/index.ts",
         "{projectRoot}/package.json"
       ],
-      "options": { "command": "tsx {projectRoot}/scripts/generateBarrels.ts" }
+      "options": {
+        "command": "tsx {projectRoot}/scripts/generateBarrels.ts",
+        "env": { "FORCE_COLOR": "0" }
+      }
     },
     "typecheck": {},
     "test": {},
